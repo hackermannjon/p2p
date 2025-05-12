@@ -11,37 +11,74 @@ def send_to_tracker(data):
 
 def main():
     print("=== Cliente Peer P2P ===")
+    logged_in = False
+    
     while True:
-        print("1. Registrar\n2. Login\n3. Anunciar Arquivos\n4. Listar Arquivos\n0. Sair")
-        op = input("Escolha: ")
+        if not logged_in:
+            print("\n1. Registrar\n2. Login\n0. Sair")
+        else:
+            print("\n3. Anunciar Arquivos\n4. Listar Arquivos\n5. Logout\n0. Sair")
+        
+        op = input("\nEscolha: ")
 
-        if op == "1":
-            u, p = input("Usuario: "), input("Senha: ")
+        if op == "1" and not logged_in:
+            u = input("Usuario: ").strip()
+            p = input("Senha: ").strip()
+            if not u or not p:
+                print("[!] Usuario e senha não podem estar vazios")
+                continue
             res = send_to_tracker({"action": "register", "username": u, "password": p})
-            print(res)
+            print(f"\n[{'✓' if res['status'] else '✗'}] {res['message']}")
 
-        elif op == "2":
-            u, p = input("Usuario: "), input("Senha: ")
+        elif op == "2" and not logged_in:
+            u = input("Usuario: ").strip()
+            p = input("Senha: ").strip()
+            if not u or not p:
+                print("[!] Usuario e senha não podem estar vazios")
+                continue
             res = send_to_tracker({"action": "login", "username": u, "password": p})
-            print(res)
+            if res['status']:
+                logged_in = True
+            print(f"\n[{'✓' if res['status'] else '✗'}] {res['message']}")
 
-        elif op == "3":
-            name = input("Nome do arquivo: ")
-            size = int(input("Tamanho (bytes): "))
-            hsh = input("Hash (SHA-256): ")
-            res = send_to_tracker({
-                "action": "announce",
-                "files": [{"name": name, "size": size, "hash": hsh}]
-            })
-            print(res)
+        elif op == "3" and logged_in:
+            try:
+                name = input("Nome do arquivo: ").strip()
+                size = int(input("Tamanho (bytes): "))
+                hsh = input("Hash (SHA-256): ").strip()
+                if not name or not hsh:
+                    print("[!] Nome e hash são obrigatórios")
+                    continue
+                res = send_to_tracker({
+                    "action": "announce",
+                    "files": [{"name": name, "size": size, "hash": hsh}]
+                })
+                print(f"\n[{'✓' if res['status'] else '✗'}] {res['message']}")
+            except ValueError:
+                print("[!] Tamanho deve ser um número válido")
 
-        elif op == "4":
+        elif op == "4" and logged_in:
             res = send_to_tracker({"action": "list_files"})
-            for name, meta in res['files'].items():
-                print(f"- {name}: {meta['size']} bytes, hash={meta['hash']}, peers={meta['peers']}")
+            if not res.get('files'):
+                print("\n[i] Nenhum arquivo registrado no tracker")
+            else:
+                print("\nArquivos disponíveis:")
+                for name, meta in res['files'].items():
+                    print(f"\n- {name}")
+                    print(f"  Tamanho: {meta['size']} bytes")
+                    print(f"  Hash: {meta['hash']}")
+                    print(f"  Peers: {len(meta['peers'])} disponível(is)")
+
+        elif op == "5" and logged_in:
+            logged_in = False
+            print("\n[✓] Logout realizado com sucesso")
 
         elif op == "0":
+            print("\n[✓] Encerrando cliente...")
             break
+        
+        else:
+            print("\n[!] Opção inválida ou não disponível no momento")
 
 if __name__ == "__main__":
     main()

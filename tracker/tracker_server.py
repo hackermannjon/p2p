@@ -49,14 +49,24 @@ def handle_client(conn, addr):
     conn.close()
 
 def start_tracker():
-    server = socket.socket()
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
     server.listen()
-    print(f"[TRACKER] Rodando em {HOST}:{PORT}")
-
-    while True:
-        conn, addr = server.accept()
-        threading.Thread(target=handle_client, args=(conn, addr)).start()
+    print(f"[*] Tracker iniciado em {HOST}:{PORT}")
+    
+    try:
+        while True:
+            conn, addr = server.accept()
+            print(f"[*] Nova conexão de {addr[0]}:{addr[1]}")
+            client_thread = threading.Thread(target=handle_client, args=(conn, addr))
+            client_thread.daemon = True
+            client_thread.start()
+    except KeyboardInterrupt:
+        print("\n[*] Encerrando o tracker...")
+    except Exception as e:
+        print(f"[!] Erro: {e}")
+    finally:
+        server.close()
 
 if __name__ == "__main__":
     start_tracker()
