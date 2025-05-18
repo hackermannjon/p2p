@@ -8,10 +8,9 @@ active_peers = {} # ip -> username
 
 HOST, PORT = 'localhost', 9000
 
-def handle_client(conn, addr):
-    data = conn.recv(4096).decode()
+def handle_request(data, addr, server):
     try:
-        request = json.loads(data)
+        request = json.loads(data.decode())
         action = request.get("action")
         response = {}
 
@@ -25,7 +24,7 @@ def handle_client(conn, addr):
                 active_peers[addr[0]] = request['username']
                 response = {"status": True, "message": "Login realizado."}
             else:
-                response = {"status": False, "message": "Credenciais invalidas."}
+                response = {"status": False, "message": "Credenciais inválidas."}
 
         elif action == "announce":
             files = request.get("files", [])
@@ -42,25 +41,27 @@ def handle_client(conn, addr):
         elif action == "list_files":
             response = {"files": files_db}
 
+        else:
+            response = {"status": False, "message": "Ação desconhecida"}
+
     except Exception as e:
         response = {"status": False, "error": str(e)}
 
-    conn.sendall(json.dumps(response).encode())
-    conn.close()
+    # Enviar resposta para o remetente
+    server.sendto(json.dumps(response).encode(), addr)
 
 def start_tracker():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server.bind((HOST, PORT))
-    server.listen()
-    print(f"[*] Tracker iniciado em {HOST}:{PORT}")
-    
+    print(f"[*] Tracker (UDP) iniciado em {HOST}:{PORT}")
+
     try:
         while True:
-            conn, addr = server.accept()
-            print(f"[*] Nova conexão de {addr[0]}:{addr[1]}")
-            client_thread = threading.Thread(target=handle_client, args=(conn, addr))
-            client_thread.daemon = True
-            client_thread.start()
+            data, addr = server.recvfrom(4096)
+            print(f"[*] Mensagem recebida de {addr[0]}:{addr[1]}")
+            thread = threading.Thread(target=handle_request, args=(data, addr, server))
+            thread.daemon = True
+            thread.start()
     except KeyboardInterrupt:
         print("\n[*] Encerrando o tracker...")
     except Exception as e:

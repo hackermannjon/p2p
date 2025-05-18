@@ -4,13 +4,18 @@ import json
 TRACKER_HOST, TRACKER_PORT = 'localhost', 9000
 
 def send_to_tracker(data):
-    with socket.socket() as s:
-        s.connect((TRACKER_HOST, TRACKER_PORT))
-        s.sendall(json.dumps(data).encode())
-        return json.loads(s.recv(4096).decode())
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.settimeout(3.0)  # timeout para evitar travar caso o tracker não responda
+        message = json.dumps(data).encode()
+        s.sendto(message, (TRACKER_HOST, TRACKER_PORT))
+        try:
+            response, _ = s.recvfrom(4096)
+            return json.loads(response.decode())
+        except socket.timeout:
+            return {"status": False, "message": "Tracker não respondeu"}
 
 def main():
-    print("=== Cliente Peer P2P ===")
+    print("=== Cliente Peer P2P (UDP) ===")
     logged_in = False
     
     while True:
