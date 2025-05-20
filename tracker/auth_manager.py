@@ -1,4 +1,5 @@
 import hashlib
+import datetime
 
 users_db = {}  # username -> hashed_password
 
@@ -14,3 +15,18 @@ def register_user(username, password):
 def authenticate_user(username, password):
     hashed = hash_password(password)
     return users_db.get(username) == hashed
+
+def get_all_users():
+    return users_db
+
+def log(msg, level="INFO"):
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    color_map = {
+        "INFO": "\033[94m",     # Azul
+        "SUCCESS": "\033[92m",  # Verde
+        "WARNING": "\033[93m",  # Amarelo
+        "ERROR": "\033[91m",    # Vermelho
+    }
+    end_color = "\033[0m"
+    color = color_map.get(level.upper(), "")
+    print(f"{color}[{now}] [{level.upper()}] {msg}{end_color}")

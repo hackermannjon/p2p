@@ -1,10 +1,11 @@
 import socket
 import threading
 import json
-from auth_manager import register_user, authenticate_user
+import datetime
+from auth_manager import register_user, authenticate_user, log
 
-files_db = {}     # filename -> {"size": int, "hash": str, "peers": [ip]}
-active_peers = {} # ip -> username
+files_db = {}     # filename -> {"size": int, "hash": str, "peers": [(ip, port)]}
+active_peers = {} # (ip, port) -> { username, login_time }
 
 HOST, PORT = 'localhost', 9000
 
@@ -14,16 +15,27 @@ def handle_request(data, addr, server):
         action = request.get("action")
         response = {}
 
+        ip, port = addr
+        peer_key = (ip, request.get("port", port))
+
+        log(f"Requisição '{action}' recebida de {ip}:{port}", "INFO")
+
         if action == "register":
             ok, msg = register_user(request['username'], request['password'])
+            log(f"Registro de usuário '{request['username']}': {msg}", "INFO")
             response = {"status": ok, "message": msg}
 
         elif action == "login":
             ok = authenticate_user(request['username'], request['password'])
             if ok:
-                active_peers[addr[0]] = request['username']
+                active_peers[peer_key] = {
+                    "username": request['username'],
+                    "login_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                log(f"Usuário '{request['username']}' logado com sucesso em {peer_key}", "SUCCESS")
                 response = {"status": True, "message": "Login realizado."}
             else:
+                log(f"Falha no login para '{request['username']}'", "WARNING")
                 response = {"status": False, "message": "Credenciais inválidas."}
 
         elif action == "announce":
@@ -34,31 +46,66 @@ def handle_request(data, addr, server):
                     "hash": f['hash'],
                     "peers": []
                 })
-                if addr[0] not in entry['peers']:
-                    entry['peers'].append(addr[0])
+                if peer_key not in entry['peers']:
+                    entry['peers'].append(peer_key)
+                    log(f"Peer {peer_key} anunciou arquivo '{f['name']}'", "INFO")
             response = {"status": True, "message": "Arquivos registrados."}
 
         elif action == "list_files":
-            response = {"files": files_db}
+            log(f"Peer {peer_key} requisitou a lista de arquivos", "INFO")
+            serializable_db = {}
+            for fname, meta in files_db.items():
+                serializable_db[fname] = {
+                    "size": meta["size"],
+                    "hash": meta["hash"],
+                    "peers": [f"{ip}:{pt}" for ip, pt in meta["peers"]]
+                }
+            response = {"files": serializable_db}
+
+        elif action == "get_peer":
+            peer_data = active_peers.get(peer_key)
+            if peer_data:
+                response = {
+                    "status": True,
+                    "peer": {
+                        "ip": peer_key[0],
+                        "port": peer_key[1],
+                        **peer_data
+                    }
+                }
+            else:
+                response = {"status": False, "message": "Nenhum peer logado com esse IP/porta"}
+
+        elif action == "get_all_peer":
+            log("Listagem de todos os peers ativos requisitada", "INFO")
+            all_peers = [
+                {
+                    "ip": ip,
+                    "port": pt,
+                    **data
+                }
+                for (ip, pt), data in active_peers.items()
+            ]
+            response = {"status": True, "peers": all_peers}
 
         else:
+            log(f"Ação desconhecida: {action}", "WARNING")
             response = {"status": False, "message": "Ação desconhecida"}
 
     except Exception as e:
+        log(f"Erro ao processar requisição de {addr}: {e}", "ERROR")
         response = {"status": False, "error": str(e)}
 
-    # Enviar resposta para o remetente
     server.sendto(json.dumps(response).encode(), addr)
 
 def start_tracker():
     server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server.bind((HOST, PORT))
-    print(f"[*] Tracker (UDP) iniciado em {HOST}:{PORT}")
+    log(f"Tracker (UDP) iniciado em {HOST}:{PORT}", "INFO")
 
     try:
         while True:
             data, addr = server.recvfrom(4096)
-            print(f"[*] Mensagem recebida de {addr[0]}:{addr[1]}")
             thread = threading.Thread(target=handle_request, args=(data, addr, server))
             thread.daemon = True
             thread.start()
