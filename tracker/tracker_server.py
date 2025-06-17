@@ -4,8 +4,8 @@ import json
 import datetime
 from auth_manager import register_user, authenticate_user, log
 
-files_db = {}     # filename -> {"size": int, "hash": str, "peers": [(ip, port)]}
-active_peers = {} # (ip, port) -> { username, login_time }
+files_db = {}      # filename -> {"size": int, "hash": str, "chunk_hashes": [str], "peers": [(ip, port)]}
+active_peers = {}  # (ip, port) -> { username, login_time }
 
 HOST, PORT = 'localhost', 9000
 
@@ -44,6 +44,7 @@ def handle_request(data, addr, server):
                 entry = files_db.setdefault(f['name'], {
                     "size": f['size'],
                     "hash": f['hash'],
+                    "chunk_hashes": f.get("chunk_hashes", []), # MODIFICADO: Adicionado suporte para hashes de chunks
                     "peers": []
                 })
                 if peer_key not in entry['peers']:
@@ -58,6 +59,7 @@ def handle_request(data, addr, server):
                 serializable_db[fname] = {
                     "size": meta["size"],
                     "hash": meta["hash"],
+                    "chunk_hashes": meta["chunk_hashes"], # MODIFICADO: Inclui hashes de chunks na resposta
                     "peers": [f"{ip}:{pt}" for ip, pt in meta["peers"]]
                 }
             response = {"files": serializable_db}

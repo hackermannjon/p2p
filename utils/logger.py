@@ -7,6 +7,8 @@ def log(msg, level="INFO"):
         "SUCCESS": "\033[92m",  # Verde
         "WARNING": "\033[93m",  # Amarelo
         "ERROR": "\033[91m",    # Vermelho
+        "NETWORK": "\033[96m",  # Ciano (para tráfego de rede)
+
     }
     end_color = "\033[0m"
     color = color_map.get(level.upper(), "")
