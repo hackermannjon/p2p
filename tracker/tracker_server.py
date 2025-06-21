@@ -18,7 +18,7 @@ active_peers = {}
 # formato: { username: {"uploads": int, "uptime_seconds": int, "score": float} }
 peer_scores = {}
 
-HOST, PORT = 'localhost', 9000
+HOST, PORT = '192.168.100.78', 9000
 
 # --- LÓGICA DE INCENTIVO ---
 
