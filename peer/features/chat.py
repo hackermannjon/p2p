@@ -2,7 +2,6 @@
 import socket
 import json
 import threading
-import select
 import sys
 from utils.logger import log
 from .network import send_to_tracker
@@ -30,15 +29,10 @@ def handle_chat_session(conn, remote_username):
 
     while chat_active_flag.is_set():
         try:
-            print('> ', end='', flush=True)
-            ready, _, _ = select.select([sys.stdin], [], [], 1)
-            if not chat_active_flag.is_set():
+            msg = input('> ')
+            if msg == '/quit':
                 break
-            if ready:
-                msg = sys.stdin.readline().rstrip()
-                if msg == '/quit':
-                    break
-                conn.sendall(msg.encode())
+            conn.sendall(msg.encode())
         except (KeyboardInterrupt, EOFError):
             break
         except Exception as e:
