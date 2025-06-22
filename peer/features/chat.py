@@ -2,6 +2,8 @@
 import socket
 import json
 import threading
+import select
+import sys
 from utils.logger import log
 from .network import send_to_tracker
 
@@ -28,12 +30,15 @@ def handle_chat_session(conn, remote_username):
 
     while chat_active_flag.is_set():
         try:
-            msg = input("> ")
+            print('> ', end='', flush=True)
+            ready, _, _ = select.select([sys.stdin], [], [], 1)
             if not chat_active_flag.is_set():
                 break
-            if msg == '/quit':
-                break
-            conn.sendall(msg.encode())
+            if ready:
+                msg = sys.stdin.readline().rstrip()
+                if msg == '/quit':
+                    break
+                conn.sendall(msg.encode())
         except (KeyboardInterrupt, EOFError):
             break
         except Exception as e:
@@ -44,9 +49,9 @@ def handle_chat_session(conn, remote_username):
     conn.close()
     print("\nSaindo do modo de chat...")
 
-def start_chat_client(peer_port, username, peer_socket):
+def start_chat_client(peer_port, username):
     """Inicia o processo para um cliente começar uma conversa."""
-    res = send_to_tracker({"action": "get_active_peers", "port": peer_port, "username": username}, peer_socket)
+    res = send_to_tracker({"action": "get_active_peers", "port": peer_port, "username": username})
     if not (res and res.get('status') and res.get('peers')):
         log("Nenhum outro peer ativo para conversar.", "WARNING")
         return

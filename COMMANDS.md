@@ -52,6 +52,8 @@ Escolhendo a opção **6**, é exibido outro menu:
 - **Remover sala** – apaga uma sala criada por você.
 - **Voltar** – retorna ao menu principal.
 
+Como moderador, use `/ban <usuario>` para expulsar membros durante a sessão. Digite `/quit` para sair da sala.
+
 O moderador mantém um log em `group_logs/<sala>.log` e envia o histórico aos novos membros.
 
 ## 6. Testando o Mecanismo de Incentivo

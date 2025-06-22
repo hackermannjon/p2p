@@ -25,7 +25,8 @@ active_peers = {}
 # formato: { username: {"uploads": int, "uptime_seconds": int, "score": float} }
 peer_scores = {}
 
-# Armazena salas de chat {room_name: {"moderator": username, "address": "ip:port"}}
+# Armazena salas de chat
+# formato: { room_name: {"moderator": str, "address": "ip:port", "members": [usernames] } }
 chat_rooms = {}
 
 # Endereço do tracker definido em config.json
@@ -47,9 +48,13 @@ def initialize_peer_score(username):
 
 # --- LÓGICA PRINCIPAL DO TRACKER ---
 
-def handle_request(data, addr, server):
+def handle_request(conn, addr):
     """Processa uma requisição de um peer."""
     try:
+        data = conn.recv(4096)
+        if not data:
+            conn.close()
+            return
         request = json.loads(data.decode())
         action = request.get("action")
         response = {}
@@ -173,7 +178,12 @@ def handle_request(data, addr, server):
             if room in chat_rooms:
                 response = {"status": False, "message": "Sala ja existe"}
             else:
-                chat_rooms[room] = {"moderator": username, "address": f"{ip}:{peer_listening_port}"}
+                chat_rooms[room] = {
+                    "moderator": username,
+                    "address": f"{ip}:{peer_listening_port}",
+                    "members": []
+                }
+                log(f"Sala '{room}' criada pelo moderador {username}", "INFO")
                 response = {"status": True}
 
         elif action == "list_rooms":
@@ -188,6 +198,23 @@ def handle_request(data, addr, server):
             else:
                 response = {"status": False, "message": "Sala nao encontrada ou permissao negada"}
 
+        elif action == "room_member_update":
+            room = request.get("room_name")
+            member = request.get("username")
+            event = request.get("event")
+            info = chat_rooms.get(room)
+            if info:
+                members = info.setdefault("members", [])
+                if event == "join" and member not in members:
+                    members.append(member)
+                    log(f"{member} entrou na sala '{room}'", "INFO")
+                if event == "leave" and member in members:
+                    members.remove(member)
+                    log(f"{member} saiu da sala '{room}'", "INFO")
+                response = {"status": True}
+            else:
+                response = {"status": False, "message": "Sala inexistente"}
+
         else:
             log(f"Ação desconhecida: {action}", "WARNING")
             response = {"status": False, "message": "Ação desconhecida"}
@@ -196,18 +223,19 @@ def handle_request(data, addr, server):
         log(f"Erro ao processar requisição de {addr}: {e}", "ERROR")
         response = {"status": False, "error": str(e)}
 
-    server.sendto(json.dumps(response).encode(), addr)
+    conn.sendall(json.dumps(response).encode())
+    conn.close()
 
 def start_tracker():
-    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
-    log(f"Tracker (UDP) iniciado em {HOST}:{PORT}", "INFO")
+    server.listen(15)
+    log(f"Tracker (TCP) iniciado em {HOST}:{PORT}", "INFO")
 
     try:
         while True:
-            data, addr = server.recvfrom(4096)
-            thread = threading.Thread(target=handle_request, args=(data, addr, server))
-            thread.daemon = True
+            conn, addr = server.accept()
+            thread = threading.Thread(target=handle_request, args=(conn, addr), daemon=True)
             thread.start()
     except KeyboardInterrupt:
         print("\n[*] Encerrando o tracker...")

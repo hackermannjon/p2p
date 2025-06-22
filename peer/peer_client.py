@@ -23,7 +23,6 @@ DOWNLOADS_FOLDER = 'downloads'
 
 peer_host = '0.0.0.0'
 peer_port = 0
-peer_socket = None # Socket UDP para o tracker
 peer_tcp_server_socket = None # Socket TCP para outros peers
 
 logged_in = False
@@ -54,7 +53,7 @@ def handle_peer_request(conn, addr):
                 score_res = send_to_tracker({
                     "action": "get_peer_score",
                     "target_username": requester_username
-                }, peer_socket)
+                })
                 score = score_res.get("score", 0) if score_res else 0
 
                 THROTTLE_THRESHOLD = 5
@@ -72,7 +71,7 @@ def handle_peer_request(conn, addr):
                     "action": "report_upload",
                     "username": username,
                     "port": peer_port
-                }, peer_socket)
+                })
             conn.close()
         
         elif action == "initiate_chat":
@@ -115,16 +114,16 @@ def peer_server_logic():
 
 def login_user():
     """Lida com a lógica de login do usuário."""
-    global logged_in, username, peer_port, peer_socket, server_thread
+    global logged_in, username, peer_port, peer_tcp_server_socket, server_thread
     u = input("Usuário: ")
     p = input("Senha: ")
-    
-    # Cria sockets para esta sessão de login
-    peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    peer_socket.bind((peer_host, 0)) # SO escolhe uma porta livre
-    peer_port = peer_socket.getsockname()[1]
 
-    res = send_to_tracker({"action": "login", "port": peer_port, "username": u, "password": p}, peer_socket)
+    peer_tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    peer_tcp_server_socket.bind((peer_host, 0))
+    peer_port = peer_tcp_server_socket.getsockname()[1]
+    peer_tcp_server_socket.listen(10)
+
+    res = send_to_tracker({"action": "login", "port": peer_port, "username": u, "password": p})
     if res and res.get('status'):
         logged_in = True
         username = u
@@ -134,23 +133,23 @@ def login_user():
         server_thread.start()
     else:
         log(f"Falha no login: {res.get('message')}", "ERROR")
-        peer_socket.close()
+        peer_tcp_server_socket.close()
 
 def register_user():
-    """Lida com a lógica de registro de usuário."""
-    # Para registrar, não precisamos de um socket ativo
-    temp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    """Lida com o registro de um novo usuário."""
     u = input("Usuário: ")
     p = input("Senha: ")
-    res = send_to_tracker({"action": "register", "username": u, "password": p}, temp_socket)
-    log(res.get('message'), "INFO" if res.get('status') else "ERROR")
-    temp_socket.close()
+    res = send_to_tracker({"action": "register", "username": u, "password": p})
+    if res and res.get('status'):
+        print(res.get('message'))
+    else:
+        log(res.get('message', 'Falha no registro'), 'ERROR')
 
 def logout_user():
     """Lida com a lógica de logout."""
-    global logged_in, username, peer_tcp_server_socket, peer_socket
+    global logged_in, username, peer_tcp_server_socket
     log("Deslogando do tracker...", "INFO")
-    send_to_tracker({"action": "logout", "port": peer_port, "username": username}, peer_socket)
+    send_to_tracker({"action": "logout", "port": peer_port, "username": username})
     logged_in = False
     username = ""
     
@@ -158,9 +157,6 @@ def logout_user():
     if peer_tcp_server_socket:
         peer_tcp_server_socket.close()
         peer_tcp_server_socket = None
-    if peer_socket:
-        peer_socket.close()
-        peer_socket = None
 
 # --- LOOP PRINCIPAL DA APLICAÇÃO ---
 
@@ -192,8 +188,8 @@ def main():
                 print("7. Logout")
                 choice = input("> ")
 
-                if choice == '1': announce.announce_files(peer_port, username, peer_socket)
-                elif choice == '2': network_files_db = list_files.list_network_files(peer_port, username, peer_socket)
+                if choice == '1': announce.announce_files(peer_port, username)
+                elif choice == '2': network_files_db = list_files.list_network_files(peer_port, username)
                 elif choice == '3':
                     if not network_files_db:
                         log("Liste os arquivos primeiro (opção 2).", "WARNING")
@@ -203,9 +199,9 @@ def main():
                         download.download_file(file_to_download, network_files_db[file_to_download], username)
                     else:
                         log("Arquivo não encontrado na lista da rede.", "ERROR")
-                elif choice == '4': ranking.show_scores(peer_port, username, peer_socket)
-                elif choice == '5': chat.start_chat_client(peer_port, username, peer_socket)
-                elif choice == '6': group_chat.show_menu(peer_port, username, peer_socket)
+                elif choice == '4': ranking.show_scores(peer_port, username)
+                elif choice == '5': chat.start_chat_client(peer_port, username)
+                elif choice == '6': group_chat.show_menu(peer_port, username)
                 elif choice == '7': logout_user()
 
     except KeyboardInterrupt:
