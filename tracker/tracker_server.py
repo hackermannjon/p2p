@@ -2,6 +2,12 @@ import socket
 import threading
 import json
 import datetime
+import os
+import sys
+
+# Garanta que o diretório pai esteja no PYTHONPATH para permitir "import utils"
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from auth_manager import register_user, authenticate_user, log
 from utils.config import TRACKER_HOST, TRACKER_PORT
 

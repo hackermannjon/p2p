@@ -5,6 +5,10 @@ import threading
 import time
 import json
 import argparse
+import sys
+
+# Garante que o diretório pai esteja no PYTHONPATH para permitir "import utils" e "features"
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Módulos de funcionalidades refatorados
 from features import announce, chat, download, list_files, ranking, group_chat
