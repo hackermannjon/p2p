@@ -2,8 +2,7 @@
 import socket
 import json
 from utils.logger import log
-
-TRACKER_HOST, TRACKER_PORT = '192.168.100.78', 9000
+from utils.config import TRACKER_HOST, TRACKER_PORT
 
 def send_to_tracker(data, peer_socket):
     """

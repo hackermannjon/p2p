@@ -4,9 +4,10 @@ import socket
 import threading
 import time
 import json
+import argparse
 
 # Módulos de funcionalidades refatorados
-from features import announce, chat, download, list_files, ranking
+from features import announce, chat, download, list_files, ranking, group_chat
 from features.network import send_to_tracker
 
 # Módulos de utilidades
@@ -16,8 +17,8 @@ from utils.logger import log
 SHARED_FOLDER = 'shared'
 DOWNLOADS_FOLDER = 'downloads'
 
-peer_host = '192.168.100.78'
-peer_port = 0 
+peer_host = '0.0.0.0'
+peer_port = 0
 peer_socket = None # Socket UDP para o tracker
 peer_tcp_server_socket = None # Socket TCP para outros peers
 
@@ -39,15 +40,32 @@ def handle_peer_request(conn, addr):
         if action == "request_chunk":
             file_name = request.get("file_name")
             chunk_index = request.get("chunk_index")
+            requester_username = request.get("username")
             chunk_file_path = os.path.join(SHARED_FOLDER, f"{file_name}_chunks", f"chunk_{chunk_index}")
 
             if os.path.exists(chunk_file_path):
                 with open(chunk_file_path, 'rb') as f:
                     chunk_data = f.read()
-                conn.sendall(chunk_data)
-                # INCENTIVO: Reporta o upload para o tracker
+
+                score_res = send_to_tracker({
+                    "action": "get_peer_score",
+                    "target_username": requester_username
+                }, peer_socket)
+                score = score_res.get("score", 0) if score_res else 0
+
+                THROTTLE_THRESHOLD = 5
+                BYTES_PER_SECOND_LIMIT = 512 * 1024
+                if score < THROTTLE_THRESHOLD:
+                    packet_size = 4096
+                    delay = packet_size / BYTES_PER_SECOND_LIMIT
+                    for i in range(0, len(chunk_data), packet_size):
+                        conn.sendall(chunk_data[i:i+packet_size])
+                        time.sleep(delay)
+                else:
+                    conn.sendall(chunk_data)
+
                 send_to_tracker({
-                    "action": "report_upload", 
+                    "action": "report_upload",
                     "username": username,
                     "port": peer_port
                 }, peer_socket)
@@ -58,6 +76,12 @@ def handle_peer_request(conn, addr):
             print(f"\n\r[!] Requisição de chat recebida de '{remote_username}'.")
             # Delega para a função de chat, que gerencia o ciclo de vida da conexão
             chat.handle_chat_session(conn, remote_username)
+
+        elif action == "join_room":
+            room_name = request.get("room_name")
+            member_user = request.get("username")
+            group_chat.accept_member(conn, room_name, member_user)
+            return
 
     except (json.JSONDecodeError, ConnectionResetError) as e:
         log(f"Conexão de {addr} encerrada ou inválida: {e}", "INFO")
@@ -160,7 +184,8 @@ def main():
                 print("3. Baixar arquivo")
                 print("4. Ver Ranking de Colaboração")
                 print("5. Chat com outro peer")
-                print("6. Logout")
+                print("6. Salas de Chat (Grupo)")
+                print("7. Logout")
                 choice = input("> ")
 
                 if choice == '1': announce.announce_files(peer_port, username, peer_socket)
@@ -171,12 +196,13 @@ def main():
                         continue
                     file_to_download = input("Digite o nome do arquivo para baixar: ")
                     if file_to_download in network_files_db:
-                        download.download_file(file_to_download, network_files_db[file_to_download])
+                        download.download_file(file_to_download, network_files_db[file_to_download], username)
                     else:
                         log("Arquivo não encontrado na lista da rede.", "ERROR")
                 elif choice == '4': ranking.show_scores(peer_port, username, peer_socket)
                 elif choice == '5': chat.start_chat_client(peer_port, username, peer_socket)
-                elif choice == '6': logout_user()
+                elif choice == '6': group_chat.show_menu(peer_port, username, peer_socket)
+                elif choice == '7': logout_user()
 
     except KeyboardInterrupt:
         print("\nSaindo...")
@@ -186,4 +212,8 @@ def main():
         print("Peer encerrado.")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', default=os.environ.get('PEER_HOST', '0.0.0.0'), help='IP para escutar conexoes TCP')
+    args = parser.parse_args()
+    peer_host = args.host
     main()

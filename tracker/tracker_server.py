@@ -3,6 +3,7 @@ import threading
 import json
 import datetime
 from auth_manager import register_user, authenticate_user, log
+from utils.config import TRACKER_HOST, TRACKER_PORT
 
 # --- ESTRUTURAS DE DADOS ---
 
@@ -18,7 +19,11 @@ active_peers = {}
 # formato: { username: {"uploads": int, "uptime_seconds": int, "score": float} }
 peer_scores = {}
 
-HOST, PORT = '192.168.100.78', 9000
+# Armazena salas de chat {room_name: {"moderator": username, "address": "ip:port"}}
+chat_rooms = {}
+
+# Endereço do tracker definido em config.json
+HOST, PORT = TRACKER_HOST, TRACKER_PORT
 
 # --- LÓGICA DE INCENTIVO ---
 
@@ -145,12 +150,37 @@ def handle_request(data, addr, server):
             # Retorna o ranking de todos os peers
             sorted_scores = sorted(peer_scores.items(), key=lambda item: item[1]['score'], reverse=True)
             response = {"status": True, "scores": sorted_scores}
-        
+
+        elif action == "get_peer_score":
+            target = request.get("target_username")
+            sc = peer_scores.get(target, {}).get("score", 0)
+            response = {"status": True, "score": sc}
+
         elif action == "get_active_peers":
             # Retorna peers ativos para o chat
-            peer_list = [{"username": v['username'], "address": f"{k[0]}:{k[1]}"} 
+            peer_list = [{"username": v['username'], "address": f"{k[0]}:{k[1]}"}
                          for k, v in active_peers.items() if k != peer_key]
             response = {"status": True, "peers": peer_list}
+
+        elif action == "create_room":
+            room = request.get("room_name")
+            if room in chat_rooms:
+                response = {"status": False, "message": "Sala ja existe"}
+            else:
+                chat_rooms[room] = {"moderator": username, "address": f"{ip}:{peer_listening_port}"}
+                response = {"status": True}
+
+        elif action == "list_rooms":
+            response = {"status": True, "rooms": chat_rooms}
+
+        elif action == "delete_room":
+            room = request.get("room_name")
+            info = chat_rooms.get(room)
+            if info and info.get("moderator") == username:
+                del chat_rooms[room]
+                response = {"status": True}
+            else:
+                response = {"status": False, "message": "Sala nao encontrada ou permissao negada"}
 
         else:
             log(f"Ação desconhecida: {action}", "WARNING")

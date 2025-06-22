@@ -13,12 +13,13 @@ DOWNLOADS_FOLDER = 'downloads'
 NUM_DOWNLOAD_THREADS = 4
 
 class DownloaderThread(threading.Thread):
-    def __init__(self, file_name, chunk_queue, prioritized_peers, temp_dir):
+    def __init__(self, file_name, chunk_queue, prioritized_peers, temp_dir, username):
         super().__init__()
         self.file_name = file_name
         self.chunk_queue = chunk_queue
         self.prioritized_peers = prioritized_peers
         self.temp_dir = temp_dir
+        self.username = username
         self.daemon = True
 
     def run(self):
@@ -32,7 +33,7 @@ class DownloaderThread(threading.Thread):
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                             s.settimeout(10)
                             s.connect((peer_ip, int(peer_tcp_port)))
-                            request = {"action": "request_chunk", "file_name": self.file_name, "chunk_index": chunk_index}
+                            request = {"action": "request_chunk", "file_name": self.file_name, "chunk_index": chunk_index, "username": self.username}
                             s.sendall(json.dumps(request).encode())
                             
                             response_parts = []
@@ -61,7 +62,7 @@ class DownloaderThread(threading.Thread):
             finally:
                 self.chunk_queue.task_done()
 
-def download_file(file_name, file_info):
+def download_file(file_name, file_info, username):
     log(f"Iniciando download de '{file_name}'...", "INFO")
     
     file_hash = file_info['hash']
@@ -82,7 +83,7 @@ def download_file(file_name, file_info):
         
     threads = []
     for _ in range(min(NUM_DOWNLOAD_THREADS, len(prioritized_peers))):
-        thread = DownloaderThread(file_name, chunk_queue, prioritized_peers, temp_dir)
+        thread = DownloaderThread(file_name, chunk_queue, prioritized_peers, temp_dir, username)
         thread.start()
         threads.append(thread)
         
