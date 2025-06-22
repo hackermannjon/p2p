@@ -1,4 +1,1 @@
-{
-    "tracker_ip": "192.168.100.78",
-    "tracker_port": 9000
-}
+{"tracker_ip": "auto", "tracker_port": 9000}

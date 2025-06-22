@@ -2,18 +2,15 @@
 
 Este documento resume os comandos de terminal para executar o tracker e os peers e testar as funcionalidades principais.
 
-## 1. Configuração
+## 1. Execucao Automatizada
 
-Edite `config.json` e ajuste `tracker_ip` e `tracker_port` conforme sua rede. O tracker e os peers lerão este arquivo automaticamente.
+Use o script `scripts/scenario_menu.py` para iniciar o tracker e os peers. O IP local e a porta do tracker sao detectados automaticamente e gravados em `config.json`.
 
-```json
-{
-    "tracker_ip": "192.168.100.78",
-    "tracker_port": 9000
-}
+```bash
+python3 scripts/scenario_menu.py
 ```
 
-## 2. Iniciar o Tracker
+## 2. Iniciar o Tracker manualmente
 
 Execute em um terminal:
 
@@ -23,7 +20,7 @@ python3 tracker/tracker_server.py
 
 O tracker escutará no IP e porta definidos em `config.json`.
 
-## 3. Iniciar um Peer
+## 3. Iniciar um Peer manualmente
 
 Em outro terminal, rode:
 

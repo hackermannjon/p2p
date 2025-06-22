@@ -1,5 +1,6 @@
 import datetime
 
+
 def log(msg, level="INFO"):
     now = datetime.datetime.now().strftime("%H:%M:%S")
     color_map = {
@@ -8,7 +9,6 @@ def log(msg, level="INFO"):
         "WARNING": "\033[93m",  # Amarelo
         "ERROR": "\033[91m",    # Vermelho
         "NETWORK": "\033[96m",  # Ciano (para tráfego de rede)
-
     }
     end_color = "\033[0m"
     color = color_map.get(level.upper(), "")

@@ -213,7 +213,9 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--host', default=os.environ.get('PEER_HOST', '0.0.0.0'), help='IP para escutar conexoes TCP')
+    from utils.config import detect_local_ip
+    default_host = os.environ.get('PEER_HOST', detect_local_ip())
+    parser.add_argument('--host', default=default_host, help='IP para escutar conexoes TCP')
     args = parser.parse_args()
     peer_host = args.host
     main()
