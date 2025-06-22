@@ -17,26 +17,39 @@ def _log_message(room, message):
         f.write(message + '\n')
 
 
-def start_moderator_room(room_name):
+def start_moderator_room(room_name, moderator):
+    """Inicializa a estrutura de uma nova sala."""
     rooms[room_name] = {
         'members': {},
         'banned': set(),
+        'pending': {},  # usuarios aguardando aprovacao
+        'moderator': moderator,
         'log_file': os.path.join(LOG_DIR, f"{room_name}.log")
     }
 
 
-def accept_member(conn, room_name, member_username):
+def _finalize_join(room_name, member_username):
+    """Move o usuario pendente para a lista de membros e inicia a sessao."""
     info = rooms.get(room_name)
     if not info:
-        conn.close()
         return
-    if member_username in info.get('banned', set()):
-        conn.sendall(b'Voce foi banido desta sala.\n')
+    entry = info.get('pending', {}).pop(member_username, None)
+    if not entry:
+        return
+    conn = entry['conn']
+    approved = entry['approved']
+    entry['event'].set()
+    if not approved:
+        # Moderador negou a entrada
+        info['banned'].add(member_username)
+        try:
+            conn.sendall(b'Voce foi banido desta sala.\n')
+        except Exception:
+            pass
         conn.close()
         return
 
-    members = info['members']
-    members[member_username] = conn
+    info['members'][member_username] = conn
     try:
         with open(info['log_file'], 'r') as f:
             for line in f:
@@ -49,7 +62,71 @@ def accept_member(conn, room_name, member_username):
         'username': member_username,
         'event': 'join'
     })
+    broadcast(room_name, f'{member_username} entrou na sala.')
     threading.Thread(target=_member_session, args=(conn, room_name, member_username), daemon=True).start()
+
+
+def approve_member(room_name, member_username):
+    info = rooms.get(room_name)
+    if not info:
+        return
+    entry = info.get('pending', {}).get(member_username)
+    if entry:
+        entry['approved'] = True
+        _finalize_join(room_name, member_username)
+
+
+def deny_member(room_name, member_username):
+    info = rooms.get(room_name)
+    if not info:
+        return
+    entry = info.get('pending', {}).get(member_username)
+    if entry:
+        entry['approved'] = False
+        _finalize_join(room_name, member_username)
+
+
+def accept_member(conn, room_name, member_username):
+    info = rooms.get(room_name)
+    if not info:
+        conn.close()
+        return
+    if member_username in info.get('banned', set()):
+        try:
+            conn.sendall(b'Voce foi banido desta sala.\n')
+        except Exception:
+            pass
+        conn.close()
+        return
+
+    # Moderador entra automaticamente
+    if member_username == info.get('moderator'):
+        info['members'][member_username] = conn
+        send_to_tracker({
+            'action': 'room_member_update',
+            'room_name': room_name,
+            'username': member_username,
+            'event': 'join'
+        })
+        threading.Thread(target=_member_session, args=(conn, room_name, member_username), daemon=True).start()
+        return
+
+    # Solicita aprovacao do moderador
+    entry = {'conn': conn, 'approved': False, 'event': threading.Event()}
+    info.setdefault('pending', {})[member_username] = entry
+    mod_conn = info['members'].get(info['moderator'])
+    if mod_conn:
+        try:
+            mod_conn.sendall(f"[SOLICITACAO] {member_username} deseja entrar. Use /sim {member_username} ou /nao {member_username}\n".encode())
+        except Exception:
+            pass
+    try:
+        conn.sendall(b'Aguardando aprovacao do moderador...\n')
+    except Exception:
+        pass
+    # Aguarda a resposta do moderador
+    entry['event'].wait()
+    return
 
 
 def _member_session(conn, room_name, member_username):
@@ -107,7 +184,7 @@ def show_menu(peer_port, username):
             room = input('Nome da sala: ')
             res = send_to_tracker({'action': 'create_room', 'room_name': room, 'port': peer_port, 'username': username})
             if res and res.get('status'):
-                start_moderator_room(room)
+                start_moderator_room(room, username)
                 print('Sala criada.')
             else:
                 log(res.get('message', 'Erro ao criar sala'), 'ERROR')
@@ -154,18 +231,36 @@ def _group_session(conn, room_name, username, is_moderator=False):
             msg = input('> ')
             if msg == '/quit':
                 break
-            if is_moderator and msg.startswith('/ban '):
-                target = msg.split(' ', 1)[1]
-                info = rooms.get(room_name)
-                if info and target in info['members']:
-                    ban_conn = info['members'].pop(target)
-                    info['banned'].add(target)
-                    ban_conn.sendall(b'Voce foi expulso pelo moderador.\n')
-                    ban_conn.close()
-                    broadcast(room_name, f'{target} foi expulso da sala.')
-                    send_to_tracker({'action': 'room_member_update', 'room_name': room_name, 'username': target, 'event': 'leave'})
-                continue
-            conn.sendall(msg.encode())
+            if is_moderator:
+                if msg.startswith('/ban '):
+                    target = msg.split(' ', 1)[1]
+                    info = rooms.get(room_name)
+                    if info and target == info.get('moderator'):
+                        print('Nao e possivel banir o moderador.')
+                        continue
+                    if info and target in info.get('members', {}):
+                        ban_conn = info['members'].pop(target)
+                        info['banned'].add(target)
+                        try:
+                            ban_conn.sendall(b'Voce foi expulso pelo moderador.\n')
+                        except Exception:
+                            pass
+                        ban_conn.close()
+                        broadcast(room_name, f'{target} foi expulso da sala.')
+                        send_to_tracker({'action': 'room_member_update', 'room_name': room_name, 'username': target, 'event': 'leave'})
+                    continue
+                if msg.startswith('/sim '):
+                    target = msg.split(' ', 1)[1]
+                    approve_member(room_name, target)
+                    continue
+                if msg.startswith('/nao '):
+                    target = msg.split(' ', 1)[1]
+                    deny_member(room_name, target)
+                    continue
+            try:
+                conn.sendall(msg.encode())
+            except Exception:
+                break
     except KeyboardInterrupt:
         pass
     conn.close()
