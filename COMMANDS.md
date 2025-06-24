@@ -7,7 +7,7 @@ Este documento resume os comandos de terminal para executar o tracker e os peers
 Execute em um terminal:
 
 ```bash
-python3 tracker/tracker_server.py
+python3 tracker/tracker_server.py [--host <IP_TRACKER>] [--port <PORTA>]
 ```
 
 O tracker escutará no IP e porta definidos em `config.json`.
@@ -17,7 +17,7 @@ O tracker escutará no IP e porta definidos em `config.json`.
 Em outro terminal, rode:
 
 ```bash
-python3 peer/peer_client.py --host <IP_LOCAL>
+python3 peer/peer_client.py --host <IP_LOCAL> --tracker-host <IP_TRACKER> --tracker-port <PORTA>
 ```
 
 Substitua `<IP_LOCAL>` pelo endereço pelo qual outros peers irão se conectar (por padrão usa `0.0.0.0`).

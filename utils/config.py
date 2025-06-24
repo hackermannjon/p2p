@@ -46,3 +46,12 @@ def load_config():
 _data = load_config()
 TRACKER_HOST = _data['tracker_ip']
 TRACKER_PORT = _data['tracker_port']
+
+
+def set_tracker_address(host: str, port: int):
+    """Altera o endereco do tracker em tempo de execucao."""
+    global TRACKER_HOST, TRACKER_PORT
+    if host:
+        TRACKER_HOST = host
+    if port:
+        TRACKER_PORT = port

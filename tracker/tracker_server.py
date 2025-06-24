@@ -243,4 +243,14 @@ def start_tracker():
         server.close()
 
 if __name__ == "__main__":
+    import argparse
+    from utils.config import set_tracker_address
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', default=HOST, help='Endereco para o tracker')
+    parser.add_argument('--port', type=int, default=PORT, help='Porta do tracker')
+    args = parser.parse_args()
+
+    set_tracker_address(args.host, args.port)
+    HOST, PORT = args.host, args.port
     start_tracker()

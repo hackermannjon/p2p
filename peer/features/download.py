@@ -5,21 +5,25 @@ import threading
 import hashlib
 from queue import Queue
 import socket
+from threading import Lock
 
 from utils.logger import log
 from utils.chunk_manager import reassemble_chunks, CHUNK_SIZE
 
 DOWNLOADS_FOLDER = 'downloads'
 NUM_DOWNLOAD_THREADS = 4
+MAX_CHUNK_RETRIES = 3
 
 class DownloaderThread(threading.Thread):
-    def __init__(self, file_name, chunk_queue, prioritized_peers, temp_dir, username):
+    def __init__(self, file_name, chunk_queue, prioritized_peers, temp_dir, username, attempts, lock):
         super().__init__()
         self.file_name = file_name
         self.chunk_queue = chunk_queue
         self.prioritized_peers = prioritized_peers
         self.temp_dir = temp_dir
         self.username = username
+        self.attempts = attempts
+        self.lock = lock
         self.daemon = True
 
     def run(self):
@@ -56,8 +60,14 @@ class DownloaderThread(threading.Thread):
                         log(f"Não foi possível baixar chunk {chunk_index} de {peer_addr_str}: {e}", "ERROR")
                 
                 if not success:
-                    log(f"Recolocando chunk {chunk_index} na fila.", "WARNING")
-                    self.chunk_queue.put((chunk_index, expected_hash))
+                    with self.lock:
+                        self.attempts[chunk_index] = self.attempts.get(chunk_index, 0) + 1
+                        attempts = self.attempts[chunk_index]
+                    if attempts < MAX_CHUNK_RETRIES:
+                        log(f"Recolocando chunk {chunk_index} na fila.", "WARNING")
+                        self.chunk_queue.put((chunk_index, expected_hash))
+                    else:
+                        log(f"Falha permanente no chunk {chunk_index}", "ERROR")
 
             finally:
                 self.chunk_queue.task_done()
@@ -78,16 +88,24 @@ def download_file(file_name, file_info, username):
     os.makedirs(temp_dir, exist_ok=True)
     
     chunk_queue = Queue()
+    attempts = {}
+    lock = Lock()
     for i, chash in enumerate(chunk_hashes):
         chunk_queue.put((i, chash))
         
     threads = []
     for _ in range(min(NUM_DOWNLOAD_THREADS, len(prioritized_peers))):
-        thread = DownloaderThread(file_name, chunk_queue, prioritized_peers, temp_dir, username)
+        thread = DownloaderThread(file_name, chunk_queue, prioritized_peers, temp_dir, username, attempts, lock)
         thread.start()
         threads.append(thread)
         
     chunk_queue.join()
+
+    missing = [i for i in range(len(chunk_hashes)) if not os.path.exists(os.path.join(temp_dir, f"chunk_{i}"))]
+    if missing:
+        log(f"Falha no download dos chunks: {missing}", "ERROR")
+        return
+
     log("Todos os chunks foram baixados. Reconstruindo arquivo...", "INFO")
     
     final_path = os.path.join(DOWNLOADS_FOLDER, file_name)
