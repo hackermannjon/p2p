@@ -2,12 +2,12 @@
 from utils.logger import log
 from .network import send_to_tracker
 
-def list_network_files(peer_port, username, peer_socket):
+def list_network_files(peer_port, username):
     """
     Busca e exibe os arquivos disponíveis na rede.
     Retorna um dicionário com os arquivos da rede para uso no download.
     """
-    res = send_to_tracker({"action": "list_files", "port": peer_port, "username": username}, peer_socket)
+    res = send_to_tracker({"action": "list_files", "port": peer_port, "username": username})
     if res and res.get('files'):
         network_files_db = res['files']
         log("Arquivos disponíveis na rede:", "INFO")

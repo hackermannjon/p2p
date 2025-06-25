@@ -2,9 +2,9 @@
 from utils.logger import log
 from .network import send_to_tracker
 
-def show_scores(peer_port, username, peer_socket):
+def show_scores(peer_port, username):
     """Busca e exibe o ranking de pontuação dos peers."""
-    res = send_to_tracker({"action": "get_scores", "port": peer_port, "username": username}, peer_socket)
+    res = send_to_tracker({"action": "get_scores", "port": peer_port, "username": username})
     if res and res.get('status'):
         scores = res.get('scores', [])
         print("\n--- Ranking de Colaboração ---")

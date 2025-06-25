@@ -6,7 +6,7 @@ from .network import send_to_tracker
 
 SHARED_FOLDER = 'shared'
 
-def announce_files(peer_port, username, peer_socket):
+def announce_files(peer_port, username):
     """
     Prepara e anuncia arquivos da pasta 'shared' para o tracker.
     Retorna um dicionário com os metadados dos arquivos locais.
@@ -45,7 +45,7 @@ def announce_files(peer_port, username, peer_socket):
         "port": peer_port,
         "username": username,
         "files": files_to_announce
-    }, peer_socket)
+    })
     
     if res and res.get('status'):
         log("Arquivos anunciados com sucesso!", "SUCCESS")
