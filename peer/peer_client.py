@@ -1,159 +1,226 @@
+# peer/peer_client.py
+import os
 import socket
+import threading
+import time
 import json
+import argparse
+import sys
 
-TRACKER_HOST, TRACKER_PORT = 'localhost', 9000
+# Garante que o diretório pai esteja no PYTHONPATH para permitir "import utils" e "features"
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Socket e porta fixa após login
-peer_socket = None
-peer_port = None
-peer_addr = None
+# Módulos de funcionalidades refatorados
+from features import announce, chat, download, list_files, ranking, group_chat
+from features.network import send_to_tracker
 
-def send_to_tracker(data):
-    if peer_socket is None:
-        raise RuntimeError("Socket do peer ainda não foi inicializado.")
+# Módulos de utilidades
+from utils.logger import log
 
-    message = json.dumps(data).encode()
-    peer_socket.sendto(message, (TRACKER_HOST, TRACKER_PORT))
+# --- CONFIGURAÇÕES E ESTADO GLOBAL ---
+SHARED_FOLDER = 'shared'
+DOWNLOADS_FOLDER = 'downloads'
 
+peer_host = '0.0.0.0'
+peer_port = 0
+peer_tcp_server_socket = None # Socket TCP para outros peers
+
+logged_in = False
+username = ""
+network_files_db = {} # Cache local da lista de arquivos da rede
+
+# --- LÓGICA DO SERVIDOR DO PEER ---
+
+def handle_peer_request(conn, addr):
+    """Lida com requisições TCP de outros peers (chunks ou chat)."""
     try:
-        response, _ = peer_socket.recvfrom(4096)
-        return json.loads(response.decode())
-    except socket.timeout:
-        return {"status": False, "message": "Tracker não respondeu"}
+        # Aumentado o buffer para garantir que a requisição JSON seja recebida
+        request_data = conn.recv(1024).decode()
+        request = json.loads(request_data)
+        action = request.get("action")
+        log(f"Requisição TCP '{action}' recebida de {addr}", "NETWORK")
 
-def main():
-    global peer_socket, peer_port, peer_addr
+        if action == "request_chunk":
+            file_name = request.get("file_name")
+            chunk_index = request.get("chunk_index")
+            requester_username = request.get("username")
+            chunk_file_path = os.path.join(SHARED_FOLDER, f"{file_name}_chunks", f"chunk_{chunk_index}")
 
-    print("=== Cliente Peer P2P (UDP) ===")
-    logged_in = False
-    username = ""
+            if os.path.exists(chunk_file_path):
+                with open(chunk_file_path, 'rb') as f:
+                    chunk_data = f.read()
+
+                score_res = send_to_tracker({
+                    "action": "get_peer_score",
+                    "target_username": requester_username
+                })
+                score = score_res.get("score", 0) if score_res else 0
+
+                THROTTLE_THRESHOLD = 5
+                BYTES_PER_SECOND_LIMIT = 512 * 1024
+                if score < THROTTLE_THRESHOLD:
+                    packet_size = 4096
+                    delay = packet_size / BYTES_PER_SECOND_LIMIT
+                    for i in range(0, len(chunk_data), packet_size):
+                        conn.sendall(chunk_data[i:i+packet_size])
+                        time.sleep(delay)
+                else:
+                    conn.sendall(chunk_data)
+
+                send_to_tracker({
+                    "action": "report_upload",
+                    "username": username,
+                    "port": peer_port
+                })
+            conn.close()
+        
+        elif action == "initiate_chat":
+            remote_username = request.get("from_user", "Desconhecido")
+            print(f"\n\r[!] Requisição de chat recebida de '{remote_username}'.")
+            # Delega para a função de chat, que gerencia o ciclo de vida da conexão
+            chat.handle_chat_session(conn, remote_username)
+
+        elif action == "join_room":
+            room_name = request.get("room_name")
+            member_user = request.get("username")
+            group_chat.accept_member(conn, room_name, member_user)
+            return
+
+    except (json.JSONDecodeError, ConnectionResetError) as e:
+        log(f"Conexão de {addr} encerrada ou inválida: {e}", "INFO")
+        conn.close()
+    except Exception as e:
+        log(f"Erro ao lidar com a requisição de {addr}: {e}", "ERROR")
+        conn.close()
+
+def peer_server_logic():
+    """Cria e gerencia o servidor TCP que escuta outros peers."""
+    global peer_tcp_server_socket
+    peer_tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    peer_tcp_server_socket.bind((peer_host, peer_port))
+    peer_tcp_server_socket.listen(10)
+    log(f"Peer escutando por conexões TCP em {peer_host}:{peer_port}", "INFO")
 
     while True:
-        if not logged_in:
-            print("\n1. Registrar\n2. Login\n0. Sair")
-        else:
-            print(f"\n[Logado como {username}:{peer_port}]")
-            print("3. Anunciar Arquivos\n4. Listar Arquivos\n5. Logout\n6. Informações do peer\n7. Ver todos os peers\n0. Sair")
+        try:
+            conn, addr = peer_tcp_server_socket.accept()
+            thread = threading.Thread(target=handle_peer_request, args=(conn, addr), daemon=True)
+            thread.start()
+        except OSError:
+             break # Socket foi fechado, encerrar o loop
+    log("Servidor TCP do peer foi encerrado.", "INFO")
 
-        op = input("\nEscolha: ")
+# --- FUNÇÕES DE CONTROLE ---
 
-        if op == "1" and not logged_in:
-            u = input("Usuário: ").strip()
-            p = input("Senha: ").strip()
-            if not u or not p:
-                print("[!] Usuário e senha não podem estar vazios")
-                continue
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as temp_socket:
-                temp_socket.settimeout(3)
-                res = send_raw(temp_socket, {
-                    "action": "register",
-                    "username": u,
-                    "password": p
-                })
-            print(f"\n[{'✓' if res['status'] else '✗'}] {res['message']}")
+def login_user():
+    """Lida com a lógica de login do usuário."""
+    global logged_in, username, peer_port, peer_tcp_server_socket, server_thread
+    u = input("Usuário: ")
+    p = input("Senha: ")
 
-        elif op == "2" and not logged_in:
-            u = input("Usuário: ").strip()
-            p = input("Senha: ").strip()
+    peer_tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    peer_tcp_server_socket.bind((peer_host, 0))
+    peer_port = peer_tcp_server_socket.getsockname()[1]
+    peer_tcp_server_socket.listen(10)
 
-            try:
-                port = int(input("Porta fixa do peer (ex: 65173): ").strip())
-                peer_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                peer_socket.bind(('localhost', port))  # Porta fixa
-                peer_socket.settimeout(3)
-                peer_port = port
-                peer_addr = ('localhost', port)
-            except Exception as e:
-                print(f"[!] Erro ao criar socket: {e}")
-                continue
+    res = send_to_tracker({"action": "login", "port": peer_port, "username": u, "password": p})
+    if res and res.get('status'):
+        logged_in = True
+        username = u
+        log(f"Login bem-sucedido como '{username}'", "SUCCESS")
+        # Inicia o servidor TCP do peer após o login
+        server_thread = threading.Thread(target=peer_server_logic, daemon=True)
+        server_thread.start()
+    else:
+        log(f"Falha no login: {res.get('message')}", "ERROR")
+        peer_tcp_server_socket.close()
 
-            res = send_to_tracker({
-                "action": "login",
-                "username": u,
-                "password": p,
-                "port": peer_port
-            })
+def register_user():
+    """Lida com o registro de um novo usuário."""
+    u = input("Usuário: ")
+    p = input("Senha: ")
+    res = send_to_tracker({"action": "register", "username": u, "password": p})
+    if res and res.get('status'):
+        print(res.get('message'))
+    else:
+        log(res.get('message', 'Falha no registro'), 'ERROR')
 
-            if res['status']:
-                logged_in = True
-                username = u
-            else:
-                peer_socket.close()
-                peer_socket = None
-                peer_port = None
-            print(f"\n[{'✓' if res['status'] else '✗'}] {res['message']}")
+def logout_user():
+    """Lida com a lógica de logout."""
+    global logged_in, username, peer_tcp_server_socket
+    log("Deslogando do tracker...", "INFO")
+    send_to_tracker({"action": "logout", "port": peer_port, "username": username})
+    logged_in = False
+    username = ""
+    
+    # Fecha os sockets da sessão
+    if peer_tcp_server_socket:
+        peer_tcp_server_socket.close()
+        peer_tcp_server_socket = None
 
-        elif op == "3" and logged_in:
-            try:
-                name = input("Nome do arquivo: ").strip()
-                size = int(input("Tamanho (bytes): "))
-                hsh = input("Hash (SHA-256): ").strip()
-                if not name or not hsh:
-                    print("[!] Nome e hash são obrigatórios")
-                    continue
-                res = send_to_tracker({
-                    "action": "announce",
-                    "port": peer_port,
-                    "files": [{"name": name, "size": size, "hash": hsh}]
-                })
-                print(f"\n[{'✓' if res['status'] else '✗'}] {res['message']}")
-            except ValueError:
-                print("[!] Tamanho deve ser um número válido")
+# --- LOOP PRINCIPAL DA APLICAÇÃO ---
 
-        elif op == "4" and logged_in:
-            res = send_to_tracker({"action": "list_files", "port": peer_port})
-            if not res.get('files'):
-                print("\n[i] Nenhum arquivo registrado no tracker")
-            else:
-                print("\nArquivos disponíveis:")
-                for name, meta in res['files'].items():
-                    print(f"\n- {name}")
-                    print(f"  Tamanho: {meta['size']} bytes")
-                    print(f"  Hash: {meta['hash']}")
-                    print(f"  Peers: {', '.join(meta['peers'])}")
-
-        elif op == "6" and logged_in:
-            res = send_to_tracker({"action": "get_peer", "port": peer_port})
-            if not res.get("status"):
-                print(f"\n✗ {res.get('message')}")
-            else:
-                print("\nPeer logado:")
-                peer = res['peer']
-                print(f"Usuário: {peer['username']}")
-                print(f"IP: {peer['ip']}")
-                print(f"Porta: {peer['port']}")
-                print(f"Login em: {peer['login_time']}")
-
-        elif op == "7" and logged_in:
-            res = send_to_tracker({"action": "get_all_peer"})
-            print("\nPeers ativos:")
-            for peer in res.get("peers", []):
-                print(f"- {peer['username']} em {peer['ip']}:{peer['port']} (desde {peer['login_time']})")
-
-        elif op == "5" and logged_in:
-            logged_in = False
-            username = ""
-            peer_socket.close()
-            peer_socket = None
-            peer_port = None
-            print("\n[✓] Logout realizado com sucesso")
-
-        elif op == "0":
-            if peer_socket:
-                peer_socket.close()
-            print("\n[✓] Encerrando cliente...")
-            break
-
-        else:
-            print("\n[!] Opção inválida ou não disponível no momento")
-
-def send_raw(sock, data):
+def main():
+    global network_files_db
+    os.makedirs(SHARED_FOLDER, exist_ok=True)
+    os.makedirs(DOWNLOADS_FOLDER, exist_ok=True)
+    
     try:
-        sock.sendto(json.dumps(data).encode(), (TRACKER_HOST, TRACKER_PORT))
-        response, _ = sock.recvfrom(4096)
-        return json.loads(response.decode())
-    except socket.timeout:
-        return {"status": False, "message": "Tracker não respondeu"}
+        while True:
+            if chat.chat_active_flag.is_set():
+                time.sleep(1)
+                continue
+            
+            if not logged_in:
+                print("\n1. Registrar\n2. Login\n3. Sair")
+                choice = input("> ")
+                if choice == '1': register_user()
+                elif choice == '2': login_user()
+                elif choice == '3': break
+            else:
+                print(f"\nLogado como: {username} | Porta: {peer_port}")
+                print("1. Anunciar meus arquivos")
+                print("2. Listar arquivos na rede")
+                print("3. Baixar arquivo")
+                print("4. Ver Ranking de Colaboração")
+                print("5. Chat com outro peer")
+                print("6. Salas de Chat (Grupo)")
+                print("7. Logout")
+                choice = input("> ")
+
+                if choice == '1': announce.announce_files(peer_port, username)
+                elif choice == '2': network_files_db = list_files.list_network_files(peer_port, username)
+                elif choice == '3':
+                    if not network_files_db:
+                        log("Liste os arquivos primeiro (opção 2).", "WARNING")
+                        continue
+                    file_to_download = input("Digite o nome do arquivo para baixar: ")
+                    if file_to_download in network_files_db:
+                        download.download_file(file_to_download, network_files_db[file_to_download], username)
+                    else:
+                        log("Arquivo não encontrado na lista da rede.", "ERROR")
+                elif choice == '4': ranking.show_scores(peer_port, username)
+                elif choice == '5': chat.start_chat_client(peer_port, username)
+                elif choice == '6': group_chat.show_menu(peer_port, username)
+                elif choice == '7': logout_user()
+
+    except KeyboardInterrupt:
+        print("\nSaindo...")
+    finally:
+        if logged_in:
+            logout_user()
+        print("Peer encerrado.")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    from utils.config import detect_local_ip, set_tracker_address, TRACKER_HOST, TRACKER_PORT
+    peer_host = '0.0.0.0'
+    parser.add_argument('--tracker', default=f'{TRACKER_HOST}:{TRACKER_PORT}', help='Endereco do tracker no formato IP:PORT')
+    args = parser.parse_args()
+    host_port = args.tracker
+    if ':' in host_port:
+        t_host, t_port = host_port.split(':', 1)
+        set_tracker_address(t_host, int(t_port))
+    else:
+        set_tracker_address(host_port, TRACKER_PORT)
     main()
