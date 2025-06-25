@@ -1,9 +1,18 @@
 # peer/features/ranking.py
+"""Visualização de pontuação (mecanismo de incentivo)."""
+
 from utils.logger import log
 from .network import send_to_tracker
 
+# P: Qual o objetivo do mecanismo de pontuação?
+# R: Premiar peers que enviam dados e permanecem online, fornecendo-lhes maior
+#    prioridade no download dos arquivos e incentivando colaboração.
+
 def show_scores(peer_port, username):
     """Busca e exibe o ranking de pontuação dos peers."""
+    # P: Por que exibir o ranking localmente se os dados estão no tracker?
+    # R: A função consulta o tracker e mostra os usuários com melhor score,
+    #    incentivando a colaboração ao tornar a pontuação visível a todos.
     res = send_to_tracker({"action": "get_scores", "port": peer_port, "username": username})
     if res and res.get('status'):
         scores = res.get('scores', [])
@@ -20,3 +29,4 @@ def show_scores(peer_port, username):
         print("------------------------------")
     else:
         log(f"Não foi possível buscar o ranking: {res.get('message')}", "ERROR")
+

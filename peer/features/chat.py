@@ -1,5 +1,7 @@
 # peer/features/chat.py
-import socket
+"""Funcionalidades de chat direto entre dois peers."""
+
+import socket  # Conexões TCP para troca de mensagens.
 import json
 import threading
 import sys
@@ -7,9 +9,16 @@ from utils.logger import log
 from .network import send_to_tracker
 
 chat_active_flag = threading.Event()
+# P: Para que serve este "flag" global?
+# R: Ele sinaliza ao restante do sistema que estamos em modo de chat ativo.
+#    Enquanto estiver definido, o menu principal do peer é temporariamente
+#    ignorado para não misturar interações de texto.
 
 def handle_chat_session(conn, remote_username):
     """Gerencia uma sessão de chat ativa. Esta função bloqueia até o chat terminar."""
+    # P: Como recebemos e enviamos mensagens ao mesmo tempo?
+    # R: Criamos uma thread ``receiver_thread`` para escutar mensagens enquanto
+    #    o loop principal lê a entrada do usuário e envia dados.
     chat_active_flag.set()
     log(f"Sessão de chat iniciada com {remote_username}. Digite '/quit' para sair.", "NETWORK")
     
@@ -45,6 +54,10 @@ def handle_chat_session(conn, remote_username):
 
 def start_chat_client(peer_port, username):
     """Inicia o processo para um cliente começar uma conversa."""
+    # P: Como encontramos outros peers disponíveis?
+    # R: Consultamos o tracker por meio da ação ``get_active_peers``. Ele retorna
+    #    a lista de usuários online e suas portas de escuta para que possamos
+    #    estabelecer a conexão de chat.
     res = send_to_tracker({"action": "get_active_peers", "port": peer_port, "username": username})
     if not (res and res.get('status') and res.get('peers')):
         log("Nenhum outro peer ativo para conversar.", "WARNING")
@@ -65,7 +78,7 @@ def start_chat_client(peer_port, username):
         target_ip, target_port = target_peer['address'].split(':')
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((target_ip, int(target_port)))
+        s.connect((target_ip, int(target_port)))  # Estabelece conexão TCP direta
         request = {"action": "initiate_chat", "from_user": username}
         s.sendall(json.dumps(request).encode())
         handle_chat_session(s, target_peer['username'])
@@ -74,3 +87,4 @@ def start_chat_client(peer_port, username):
         log("Seleção inválida.", "ERROR")
     except Exception as e:
         log(f"Não foi possível iniciar o chat: {e}", "ERROR")
+

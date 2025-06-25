@@ -1,8 +1,15 @@
 # peer/features/announce.py
+"""Funções para divulgar arquivos locais ao tracker."""
+
 import os
 from utils.chunk_manager import split_file_into_chunks
 from utils.logger import log
 from .network import send_to_tracker
+
+# P: Qual a função de ``split_file_into_chunks`` neste processo?
+# R: Para cada arquivo da pasta ``shared`` dividimos em pedaços de tamanho fixo
+#    e calculamos seu hash. Esses metadados são enviados ao tracker para que ele
+#    saiba como validar os chunks durante futuros downloads.
 
 SHARED_FOLDER = 'shared'
 
@@ -12,6 +19,9 @@ def announce_files(peer_port, username):
     Retorna um dicionário com os metadados dos arquivos locais.
     """
     os.makedirs(SHARED_FOLDER, exist_ok=True)
+    # P: Como os peers informam ao tracker quais arquivos possuem?
+    # R: Esta função percorre a pasta compartilhada, gera hashes de cada
+    #    arquivo e envia uma lista com esses metadados ao tracker.
     files_to_announce = []
     local_files_metadata = {}
 
@@ -46,6 +56,11 @@ def announce_files(peer_port, username):
         "username": username,
         "files": files_to_announce
     })
+    # P: O tracker armazena permanentemente esses dados?
+    # R: Enquanto o processo do tracker estiver rodando, ele mantém os
+    #    metadados dos arquivos em memória e no arquivo ``tracker_state.json``
+    #    para persistência. Assim, outros peers saberão quem possui cada
+    #    arquivo mesmo após reiniciar o tracker.
     
     if res and res.get('status'):
         log("Arquivos anunciados com sucesso!", "SUCCESS")
@@ -53,3 +68,4 @@ def announce_files(peer_port, username):
         log(f"Falha ao anunciar arquivos: {res.get('message')}", "ERROR")
 
     return local_files_metadata
+

@@ -1,11 +1,19 @@
-import socket
-import threading
-import json
-import datetime
+"""Servidor central (tracker) que coordena peers e salas de chat."""
+
+import socket  # Responsável pela comunicação TCP entre tracker e peers.
+import threading  # Permite atendimento concorrente de múltiplas conexões.
+import json  # Utilizado para serializar/deserializar mensagens em JSON.
+import datetime  # Usado para registrar tempos de login e uptime.
 import os
 import sys
 
-# Garanta que o diretório pai esteja no PYTHONPATH para permitir "import utils"
+# Este servidor atua como ponto central para registrar usuários, manter o
+# catálogo de arquivos e coordenar as salas de chat. Apesar de simples, ele
+# demonstra os principais componentes de um tracker real em redes P2P.
+
+# P: Como este módulo encontra utilidades fora da pasta atual?
+# R: O diretório pai é adicionado ao PYTHONPATH dinamicamente, permitindo
+#    importar módulos como ``utils`` e ``auth_manager`` sem instalá-los.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from auth_manager import register_user, authenticate_user, log, users_db
@@ -33,9 +41,16 @@ chat_rooms = {}
 STATE_FILE = os.path.join(os.path.dirname(__file__), 'tracker_state.json')
 POPULATE_FILE = os.path.join(os.path.dirname(__file__), '..', 'populate', 'tracker_state.json')
 
+# Esses arquivos JSON guardam usuários, pontuações e salas. Ao iniciar o
+# tracker, carregamos ``STATE_FILE`` se existir; caso contrário, usamos o
+# conteúdo em ``populate`` como base para testes.
+
 
 def load_state():
     """Carrega dados persistidos ou usa o arquivo de populacao como base."""
+    # P: Como o tracker mantém informações mesmo após ser encerrado?
+    # R: Ele grava um arquivo ``tracker_state.json``. Ao iniciar, esta função
+    #    tenta ler esse arquivo ou, na ausência dele, usa ``populate`` como base.
     source = None
     if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 2:
         source = STATE_FILE
@@ -52,6 +67,8 @@ def load_state():
 
 
 def save_state():
+    """Persiste o estado atual do tracker em ``tracker_state.json``."""
+
     data = {
         'users': users_db,
         'scores': peer_scores,
@@ -67,12 +84,19 @@ HOST, PORT = TRACKER_HOST, TRACKER_PORT
 
 def calculate_score(stats):
     """Calcula a pontuação de um peer com base em suas estatísticas."""
+    # P: Qual métrica determina se um peer merece mais prioridade?
+    # R: A pontuação considera dois fatores: uploads realizados e tempo
+    #    conectado. Essa métrica híbrida incentiva colaboração contínua.
+    #    Aqui um upload vale 1 ponto e cada segundo online vale 0,01 ponto.
     # Métrica híbrida: 1 ponto por upload, 0.01 pontos por segundo online.
     score = (stats.get("uploads", 0) * 1.0) + (stats.get("uptime_seconds", 0) * 0.01)
     return round(score, 2)
 
 def initialize_peer_score(username):
     """Inicializa a pontuação para um novo usuário ou um usuário que retorna."""
+    # P: O que acontece se o tracker reiniciar e perder a memória dos peers?
+    # R: Esta função garante que, ao logar novamente, cada usuário tenha sua
+    #    estrutura de pontuação restaurada (usando o arquivo de estado).
     if username not in peer_scores:
         peer_scores[username] = {"uploads": 0, "uptime_seconds": 0, "score": 0}
         log(f"Pontuação inicializada para o usuário '{username}'", "INFO")
@@ -81,6 +105,10 @@ def initialize_peer_score(username):
 
 def handle_request(conn, addr):
     """Processa uma requisição de um peer."""
+    # P: Como o tracker consegue lidar com vários peers se conectando ao mesmo
+    #    tempo sem travar?
+    # R: Cada conexão aceita é delegada a uma thread (ver ``start_tracker``).
+    #    Aqui apenas tratamos a mensagem recebida de ``conn``.
     try:
         data = conn.recv(4096)
         if not data:
@@ -108,6 +136,10 @@ def handle_request(conn, addr):
 
         elif action == "login":
             ok = authenticate_user(request['username'], request['password'])
+            # P: Como o tracker mantém a sessão do peer ativa?
+            # R: Se as credenciais forem válidas, o par é registrado em
+            #    ``active_peers`` com horário de login. Isso permite calcular
+            #    o tempo de permanência e localizar o peer depois.
             if ok:
                 # Garante que a pontuação seja inicializada se o tracker reiniciou
                 initialize_peer_score(request['username'])
@@ -123,6 +155,9 @@ def handle_request(conn, addr):
         
         elif action == "logout":
             if peer_key in active_peers:
+                # P: Por que calcular o tempo de atividade neste momento?
+                # R: O logout é o ponto em que sabemos quando a sessão terminou.
+                #    Assim atualizamos ``uptime_seconds`` para usar no ranking.
                 # Calcula o tempo de atividade da sessão
                 session_duration = datetime.datetime.now() - active_peers[peer_key]['login_time']
                 uptime_seconds = int(session_duration.total_seconds())
@@ -151,6 +186,9 @@ def handle_request(conn, addr):
                 response = {"status": False, "message": "Ação não permitida. Faça login primeiro."}
             else:
                 files = request.get("files", [])
+                # P: Como o tracker sabe quais peers possuem cada arquivo?
+                # R: Para cada item anunciado, salvamos o par ``arquivo -> lista de peers``
+                #    em ``files_db``. Assim outros peers podem descobrir quem tem o arquivo.
                 for f in files:
                     entry = files_db.setdefault(f['name'], {
                         "size": f['size'], "hash": f['hash'], "chunk_hashes": f.get("chunk_hashes", []), "peers": []
@@ -162,6 +200,10 @@ def handle_request(conn, addr):
 
         elif action == "list_files":
             serializable_db = {}
+            # P: Como os peers decidem de quem baixar primeiro?
+            # R: Além dos metadados, esta resposta inclui para cada peer sua
+            #    pontuação de colaboração. O cliente ordena pela maior
+            #    pontuação, priorizando quem ajuda mais a rede.
             for fname, meta in files_db.items():
                 peers_with_scores = []
                 for ip_peer, port_peer in meta["peers"]:
@@ -265,14 +307,20 @@ def handle_request(conn, addr):
     conn.close()
 
 def start_tracker():
+    """Laço principal que aceita conexões de peers via TCP."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
     server.listen(15)
+    # O valor 15 define o tamanho máximo da fila de conexões pendentes
     log(f"Tracker (TCP) iniciado em {HOST}:{PORT}", "INFO")
 
     try:
         while True:
             conn, addr = server.accept()
+            # P: Como processar vários peers ao mesmo tempo sem uma fila única?
+            # R: Cada nova conexão dispara uma ``threading.Thread`` que
+            #    executa ``handle_request``. O tracker continua aceitando novas
+            #    conexões paralelamente.
             thread = threading.Thread(target=handle_request, args=(conn, addr), daemon=True)
             thread.start()
     except KeyboardInterrupt:
@@ -284,6 +332,10 @@ if __name__ == "__main__":
     import argparse
     from utils.config import set_tracker_address
 
+    # P: Por que permitir definir o endereço via argumentos?
+    # R: Facilita testes em diferentes máquinas/portas sem alterar o código
+    #    fonte ou o arquivo de configuração.
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--host', default=HOST, help='Endereco para o tracker')
     parser.add_argument('--port', type=int, default=PORT, help='Porta do tracker')
@@ -293,3 +345,4 @@ if __name__ == "__main__":
     HOST, PORT = args.host, args.port
     load_state()
     start_tracker()
+

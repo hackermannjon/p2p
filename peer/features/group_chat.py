@@ -1,3 +1,5 @@
+"""Gerenciamento de salas de chat em grupo com moderação."""
+
 import os
 import json
 import socket
@@ -10,15 +12,25 @@ rooms = {}
 LOG_DIR = 'group_logs'
 os.makedirs(LOG_DIR, exist_ok=True)
 
+# P: Por que manter um diretório de logs para cada sala?
+# R: Além de servir como histórico para novos participantes, os logs permitem
+#    auditar o comportamento dos membros e preservar conversas importantes mesmo
+#    após o encerramento do programa.
+
 
 def _log_message(room, message):
+    """Registra a mensagem no arquivo de histórico da sala."""
     path = os.path.join(LOG_DIR, f"{room}.log")
     with open(path, 'a') as f:
         f.write(message + '\n')
+    # Cada mensagem é persistida imediatamente para minimizar perda de dados
 
 
 def start_moderator_room(room_name, moderator):
     """Inicializa a estrutura de uma nova sala."""
+    # P: Onde o histórico das mensagens fica armazenado?
+    # R: Cada sala possui um arquivo ``group_logs/<sala>.log`` que é criado aqui
+    #    e alimentado pela função ``_log_message``.
     rooms[room_name] = {
         'members': {},
         'banned': set(),
@@ -56,6 +68,8 @@ def _finalize_join(room_name, member_username):
                 conn.sendall(line.encode())
     except FileNotFoundError:
         pass
+    # As mensagens anteriores são enviadas logo após a entrada para que o novo
+    # participante tenha contexto da conversa.
     send_to_tracker({
         'action': 'room_member_update',
         'room_name': room_name,
@@ -153,6 +167,7 @@ def _member_session(conn, room_name, member_username):
 
 
 def broadcast(room_name, message, exclude=None):
+    # Envia uma mensagem para todos os membros conectados, exceto quem enviou.
     for uname, c in list(rooms.get(room_name, {}).get('members', {}).items()):
         if uname == exclude:
             continue
@@ -264,4 +279,5 @@ def _group_session(conn, room_name, username, is_moderator=False):
     except KeyboardInterrupt:
         pass
     conn.close()
+
 
