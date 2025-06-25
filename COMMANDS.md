@@ -17,10 +17,9 @@ O tracker escutará no IP e porta definidos em `config.json`.
 Em outro terminal, rode:
 
 ```bash
-python3 peer/peer_client.py --host <IP_LOCAL> --tracker-host <IP_TRACKER> --tracker-port <PORTA>
+python3 peer/peer_client.py --tracker <IP_TRACKER:PORTA>
 ```
 
-Substitua `<IP_LOCAL>` pelo endereço pelo qual outros peers irão se conectar (por padrão usa `0.0.0.0`).
 
 ## 3. Menu Inicial
 
