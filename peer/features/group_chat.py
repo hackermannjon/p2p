@@ -264,3 +264,4 @@ def _group_session(conn, room_name, username, is_moderator=False):
     except KeyboardInterrupt:
         pass
     conn.close()
+

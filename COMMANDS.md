@@ -11,6 +11,9 @@ python3 tracker/tracker_server.py [--host <IP_TRACKER>] [--port <PORTA>]
 ```
 
 O tracker escutará no IP e porta definidos em `config.json`.
+Na primeira execução, o arquivo `tracker_state.json` é criado
+automaticamente a partir de `populate/tracker_state.json`,
+contendo alguns usuários e salas de exemplo.
 
 ## 2. Iniciar um Peer manualmente
 
@@ -19,6 +22,7 @@ Em outro terminal, rode:
 ```bash
 python3 peer/peer_client.py --tracker <IP_TRACKER:PORTA>
 ```
+Se omitido, o peer usa o endereço definido em `config.json`.
 
 
 ## 3. Menu Inicial
@@ -36,7 +40,8 @@ Com o usuário logado, o menu apresenta:
 1. **Anunciar meus arquivos** – compartilha arquivos da pasta `shared/`.
 2. **Listar arquivos na rede** – obtém a lista de arquivos disponíveis.
 3. **Baixar arquivo** – baixa um arquivo listado.
-4. **Ver Ranking de Colaboração** – mostra a pontuação de cada usuário.
+4. **Ver Ranking de Colaboração** – exibe a pontuação de todos os usuários,
+   estejam eles online ou não.
 5. **Chat com outro peer** – abre um chat 1‑para‑1 com um peer ativo.
 6. **Salas de Chat (Grupo)** – permite criar, entrar e remover salas moderadas.
 7. **Logout** – finaliza a sessão.

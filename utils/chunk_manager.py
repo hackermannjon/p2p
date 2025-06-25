@@ -45,3 +45,4 @@ def reassemble_chunks(chunks_dir, output_file, total_chunks):
             with open(chunk_path, 'rb') as f_in:
                 f_out.write(f_in.read())
     print(f"Arquivo '{output_file}' reconstruido com sucesso a partir de {total_chunks} chunks.")
+

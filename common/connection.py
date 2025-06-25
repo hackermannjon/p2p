@@ -17,3 +17,4 @@ def send_message(host, port, action, data):
         return {"status": False, "message": "Nao foi possivel conectar ao servidor"}
     except Exception as e:
         return {"status": False, "message": f"Erro na comunicacao: {str(e)}"}
+

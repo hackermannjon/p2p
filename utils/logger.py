@@ -13,3 +13,4 @@ def log(msg, level="INFO"):
     end_color = "\033[0m"
     color = color_map.get(level.upper(), "")
     print(f"{color}[{now}] [{level.upper()}] {msg}{end_color}")
+

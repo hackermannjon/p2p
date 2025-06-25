@@ -31,15 +31,24 @@ chat_rooms = {}
 
 # Arquivo para persistir dados entre reinicios
 STATE_FILE = os.path.join(os.path.dirname(__file__), 'tracker_state.json')
+POPULATE_FILE = os.path.join(os.path.dirname(__file__), '..', 'populate', 'tracker_state.json')
 
 
 def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
+    """Carrega dados persistidos ou usa o arquivo de populacao como base."""
+    source = None
+    if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 2:
+        source = STATE_FILE
+    elif os.path.exists(POPULATE_FILE):
+        source = POPULATE_FILE
+    if source:
+        with open(source, 'r') as f:
             data = json.load(f)
             users_db.update(data.get('users', {}))
             peer_scores.update(data.get('scores', {}))
             chat_rooms.update(data.get('rooms', {}))
+        if source == POPULATE_FILE:
+            save_state()
 
 
 def save_state():
