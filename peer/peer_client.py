@@ -1,47 +1,30 @@
-# peer/peer_client.py
-"""Cliente peer que se comunica com o tracker e com outros peers."""
-
 import os
-import socket  # Comunicação TCP entre peers.
-import threading  # Utilizado para lidar com múltiplas conexões simultaneamente.
+import socket
+import threading
 import time
 import json
 import argparse
 import sys
-
-# P: Como este arquivo localiza as bibliotecas compartilhadas (utils, features)?
-# R: O diretório pai é adicionado ao PYTHONPATH para que possamos importar
-#    esses módulos sem instalá-los como pacotes do sistema.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Módulos de funcionalidades refatorados
 from features import announce, chat, download, list_files, ranking, group_chat
 from features.network import send_to_tracker
-
-# Módulos de utilidades
 from utils.logger import log
 
-# --- CONFIGURAÇÕES E ESTADO GLOBAL ---
 SHARED_FOLDER = 'shared'
 DOWNLOADS_FOLDER = 'downloads'
 
 peer_host = '0.0.0.0'
 peer_port = 0
-peer_tcp_server_socket = None # Socket TCP para outros peers
+peer_tcp_server_socket = None
 
 logged_in = False
 username = ""
-network_files_db = {} # Cache local da lista de arquivos da rede
+network_files_db = {}
 
-# --- LÓGICA DO SERVIDOR DO PEER ---
 
 def handle_peer_request(conn, addr):
-    """Lida com requisições TCP de outros peers (chunks ou chat)."""
-    # P: Como o peer diferencia pedidos de chunk de iniciação de chat?
-    # R: Cada requisição contém o campo ``action``. Dependendo do valor,
-    #    executamos ramos distintos (download de chunk, chat direto ou sala).
     try:
-        # Aumentado o buffer para garantir que a requisição JSON seja recebida
         request_data = conn.recv(1024).decode()
         request = json.loads(request_data)
         action = request.get("action")
@@ -61,22 +44,10 @@ def handle_peer_request(conn, addr):
                     "action": "get_peer_score",
                     "target_username": requester_username
                 })
-                score = score_res.get("score", 0) if score_res else 0
-
-                THROTTLE_THRESHOLD = 5
-                BYTES_PER_SECOND_LIMIT = 512 * 1024
-                # P: Peers com baixa pontuação podem sobrecarregar os bons?
-                # R: Para incentivar boas práticas, aplicamos "throttling" caso
-                #    a pontuação do solicitante seja baixa, limitando a taxa de
-                #    envio do chunk.
-                if score < THROTTLE_THRESHOLD:
-                    packet_size = 4096
-                    delay = packet_size / BYTES_PER_SECOND_LIMIT
-                    for i in range(0, len(chunk_data), packet_size):
-                        conn.sendall(chunk_data[i:i+packet_size])
-                        time.sleep(delay)
-                else:
-                    conn.sendall(chunk_data)
+                tier = score_res.get("tier", "bronze") if score_res else "bronze"
+                delay_map = {"bronze": 10, "prata": 5, "ouro": 2, "diamante": 0}
+                time.sleep(delay_map.get(tier, 0))
+                conn.sendall(chunk_data)
 
                 send_to_tracker({
                     "action": "report_upload",
@@ -88,7 +59,6 @@ def handle_peer_request(conn, addr):
         elif action == "initiate_chat":
             remote_username = request.get("from_user", "Desconhecido")
             print(f"\n\r[!] Requisição de chat recebida de '{remote_username}'.")
-            # Delega para a função de chat, que gerencia o ciclo de vida da conexão
             chat.handle_chat_session(conn, remote_username)
 
         elif action == "join_room":
@@ -105,11 +75,6 @@ def handle_peer_request(conn, addr):
         conn.close()
 
 def peer_server_logic():
-    """Cria e gerencia o servidor TCP que escuta outros peers."""
-    # P: Por que cada peer precisa de um servidor próprio?
-    # R: É por meio dele que os outros peers solicitam chunks ou iniciam
-    #    conversas. Ao logar, abrimos este socket e o tracker divulga nossa porta
-    #    para a rede.
     global peer_tcp_server_socket
     peer_tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     peer_tcp_server_socket.bind((peer_host, peer_port))
@@ -122,16 +87,11 @@ def peer_server_logic():
             thread = threading.Thread(target=handle_peer_request, args=(conn, addr), daemon=True)
             thread.start()
         except OSError:
-             break # Socket foi fechado, encerrar o loop
+            break
     log("Servidor TCP do peer foi encerrado.", "INFO")
 
-# --- FUNÇÕES DE CONTROLE ---
 
 def login_user():
-    """Lida com a lógica de login do usuário."""
-    # P: Por que abrir o socket do servidor só após o login?
-    # R: Assim garantimos que apenas usuários autenticados anunciem portas para
-    #    a rede, prevenindo conexões indesejadas antes da autenticação.
     global logged_in, username, peer_port, peer_tcp_server_socket, server_thread
     u = input("Usuário: ")
     p = input("Senha: ")
@@ -146,7 +106,6 @@ def login_user():
         logged_in = True
         username = u
         log(f"Login bem-sucedido como '{username}'", "SUCCESS")
-        # Inicia o servidor TCP do peer após o login
         server_thread = threading.Thread(target=peer_server_logic, daemon=True)
         server_thread.start()
     else:
@@ -154,10 +113,6 @@ def login_user():
         peer_tcp_server_socket.close()
 
 def register_user():
-    """Lida com o registro de um novo usuário."""
-    # P: Por que o registro passa pelo tracker?
-    # R: O tracker mantém o banco de usuários centralizado, garantindo que
-    #    nomes sejam únicos e permitindo autenticação futura.
     u = input("Usuário: ")
     p = input("Senha: ")
     res = send_to_tracker({"action": "register", "username": u, "password": p})
@@ -167,29 +122,18 @@ def register_user():
         log(res.get('message', 'Falha no registro'), 'ERROR')
 
 def logout_user():
-    """Lida com a lógica de logout."""
-    # P: O que acontece com as conexões ativas quando saímos?
-    # R: O socket do servidor do peer é fechado e a sessão é removida do
-    #    tracker, liberando recursos e atualizando a pontuação de uptime.
     global logged_in, username, peer_tcp_server_socket
     log("Deslogando do tracker...", "INFO")
     send_to_tracker({"action": "logout", "port": peer_port, "username": username})
     logged_in = False
     username = ""
     
-    # Fecha os sockets da sessão
+    
     if peer_tcp_server_socket:
         peer_tcp_server_socket.close()
         peer_tcp_server_socket = None
 
-# --- LOOP PRINCIPAL DA APLICAÇÃO ---
-
 def main():
-    """Loop principal que apresenta o menu interativo ao usuário."""
-    # P: Por que o código usa um loop infinito com ``try/except``?
-    # R: O loop permite que o peer permaneça em execução atendendo várias
-    #    operações. Um ``KeyboardInterrupt`` (Ctrl+C) encerra o programa de
-    #    forma limpa.
     global network_files_db
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOADS_FOLDER, exist_ok=True)
@@ -245,10 +189,6 @@ if __name__ == "__main__":
     from utils.config import detect_local_ip, set_tracker_address, TRACKER_HOST, TRACKER_PORT
     peer_host = '0.0.0.0'
     parser.add_argument('--tracker', default=f'{TRACKER_HOST}:{TRACKER_PORT}', help='Endereco do tracker no formato IP:PORT')
-    # P: Preciso informar o IP manualmente?
-    # R: Não. Se nenhum argumento for passado, o programa utiliza os valores do
-    #    arquivo ``config.json`` ou detecta o IP local automaticamente por meio
-    #    de ``detect_local_ip``.
     args = parser.parse_args()
     host_port = args.tracker
     if ':' in host_port:
@@ -256,7 +196,5 @@ if __name__ == "__main__":
         set_tracker_address(t_host, int(t_port))
     else:
         set_tracker_address(host_port, TRACKER_PORT)
-    # O endereço final do tracker será usado por todas as funções de rede
-    # Todas as configurações estão prontas. Entramos no loop principal.
     main()
 
