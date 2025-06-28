@@ -1,6 +1,14 @@
 
-import socket
-import threading
+"""Servidor central (tracker) do sistema P2P.
+
+O tracker mantém registros de peers ativos, arquivos compartilhados e salas de
+chat. Ele responde a requisições TCP dos clientes e utiliza diversas estruturas
+para persistir informações. Os comentários abaixo utilizam perguntas e
+respostas para esclarecer as etapas principais.
+"""
+
+import socket  # Responsável por criar o socket TCP de atendimento
+import threading  # Permite lidar com várias conexões simultâneas
 import json
 import datetime
 import os
@@ -21,6 +29,12 @@ POPULATE_FILE = os.path.join(os.path.dirname(__file__), '..', 'populate', 'track
 
 
 def load_state():
+    """Carrega o estado salvo do tracker para a memória.
+
+    P: De onde vêm as informações persistidas?
+    R: Primeiro tentamos ``tracker_state.json``. Caso ainda não exista, usamos
+       ``populate/tracker_state.json`` para pré-carregar dados de teste.
+    """
 
     source = None
     if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 2:
@@ -44,6 +58,7 @@ def load_state():
 
 
 def save_state():
+    """Grava no disco os bancos de usuários, pontuações e salas."""
     data = {'users': users_db, 'scores': peer_scores, 'rooms': chat_rooms}
     with open(STATE_FILE, 'w') as f:
         json.dump(data, f)
@@ -53,11 +68,13 @@ HOST, PORT = TRACKER_HOST, TRACKER_PORT
 
 
 def calculate_score(stats):
+    """Calcula a pontuação baseada em uploads e tempo online."""
     score = (stats.get('uploads', 0)) + (stats.get('uptime_seconds', 0) * 0.01)
     return round(score, 2)
 
 
 def determine_tier(score):
+    """Determina o tier do usuário de acordo com a pontuação acumulada."""
 
     if score < 10:
         return 'bronze'
@@ -69,11 +86,18 @@ def determine_tier(score):
 
 
 def initialize_peer_score(username):
+    """Garante que todo usuário possua registro de estatísticas."""
     if username not in peer_scores:
         peer_scores[username] = {'uploads': 0, 'uptime_seconds': 0, 'score': 0, 'tier': 'bronze'}
 
 
 def handle_request(conn, addr):
+    """Processa uma única requisição de um peer.
+
+    P: Por que cada conexão é atendida em uma thread separada?
+    R: Para que o tracker possa continuar aceitando novas conexões enquanto
+       processa mensagens potencialmente demoradas.
+    """
 
     try:
         data = conn.recv(4096)
@@ -251,6 +275,7 @@ def handle_request(conn, addr):
 
 
 def start_tracker():
+    """Inicia o socket do tracker e aceita conexões indefinidamente."""
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
@@ -258,6 +283,8 @@ def start_tracker():
     log(f"Tracker (TCP) iniciado em {HOST}:{PORT}", "INFO")
     try:
         while True:
+            # P: Como o tracker continua aceitando peers sem bloquear?
+            # R: Cada ``accept`` cria uma thread que executa ``handle_request``.
             
             
             conn, addr = server.accept()

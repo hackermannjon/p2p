@@ -1,12 +1,19 @@
 
+"""Rotinas de download paralelas para arquivos compartilhados.
+
+Este módulo concentra a lógica de múltiplas threads que baixam "chunks" de
+diversos peers ao mesmo tempo. Cada bloco de código possui comentários em
+formato de perguntas e respostas para facilitar o estudo.
+"""
+
 import json
 import os
-import threading
-import hashlib
-from queue import Queue, Empty
+import threading  # Permite a criação de várias threads de download
+import hashlib  # Garante integridade calculando hashes SHA-256
+from queue import Queue, Empty  # Estruturas seguras para compartilhar tarefas
 import socket
 from threading import Lock
-from itertools import cycle
+from itertools import cycle  # Facilita o rodízio entre os peers disponíveis
 
 from utils.logger import log
 from utils.chunk_manager import reassemble_chunks
@@ -17,6 +24,13 @@ MAX_CHUNK_RETRIES = 3
 TIER_THREADS = {'bronze': 1, 'prata': 2, 'ouro': 3, 'diamante': 4}
 
 class DownloaderThread(threading.Thread):
+    """Thread responsável por baixar chunks individuais.
+
+    P: Por que usamos várias threads para baixar um único arquivo?
+    R: Cada thread tenta obter um chunk de um peer diferente. Isso aproveita ao
+       máximo a largura de banda disponível e respeita o limite de paralelismo
+       definido pelo tier do usuário.
+    """
 
     def __init__(self, file_name, chunk_queue, peers, temp_dir, username, attempts, lock, peer_cycle, peer_lock):
         super().__init__(daemon=True)
@@ -31,10 +45,13 @@ class DownloaderThread(threading.Thread):
         self.peer_lock = peer_lock
 
     def run(self):
-        
-        
-        
-        
+        """Loop principal que tenta baixar os chunks atribuídos.
+
+        P: O que acontece se um peer não possuir o chunk solicitado?
+        R: A thread consulta o próximo peer no ``cycle``. Se todos falharem, o
+           chunk é colocado de volta na fila para uma nova tentativa.
+        """
+
         while True:
             try:
                 chunk_index, expected_hash = self.chunk_queue.get_nowait()
@@ -100,6 +117,18 @@ class DownloaderThread(threading.Thread):
 
 
 def download_file(file_name, file_info, username):
+    """Baixa um arquivo dividindo o trabalho entre várias threads.
+
+    P: Como é determinado o número de threads simultâneas?
+    R: O tracker informa o ``tier`` do usuário. Cada tier permite um número
+       máximo de threads definido em ``TIER_THREADS``.
+
+    Args:
+        file_name (str): Nome do arquivo a ser baixado.
+        file_info (dict): Metadados enviados pelo tracker, incluindo lista de
+            peers e hashes dos chunks.
+        username (str): Usuário atual, necessário para relatar uploads.
+    """
 
     res = send_to_tracker({"action": "get_peer_score", "target_username": username})
     tier = res.get("tier", "bronze") if res else "bronze"
@@ -120,15 +149,25 @@ def download_file(file_name, file_info, username):
     temp_dir = os.path.join(DOWNLOADS_FOLDER, f"temp_{file_hash}")
     os.makedirs(temp_dir, exist_ok=True)
 
+    # P: Como as threads sabem quais chunks ainda precisam ser baixados?
+    # R: Utilizamos uma fila ``Queue`` que armazena tuplas (index, hash). Cada
+    #    thread consome dessa fila e devolve o chunk em caso de falha.
     chunk_queue = Queue()
     attempts = {}
     lock = Lock()
     for i, chash in enumerate(chunk_hashes):
         chunk_queue.put((i, chash))
 
+    # P: Como escolher o próximo peer sem favorecer sempre o mesmo?
+    # R: ``cycle`` cria um iterador infinito que percorre a lista em ordem,
+    #    permitindo um rodízio simples entre os peers disponíveis.
     peer_cycle = cycle(prioritized_peers)
+    # trava simples para impedir que duas threads avancem o ciclo ao mesmo tempo
     peer_lock = Lock()
     threads = []
+    # P: Como limitamos o número de threads para respeitar o tier do usuário?
+    # R: ``threads_allowed`` define o limite máximo. Criamos somente até esse
+    #    valor ou a quantidade de peers disponíveis, o que for menor.
     for _ in range(min(threads_allowed, len(prioritized_peers))):
         t = DownloaderThread(file_name, chunk_queue, prioritized_peers, temp_dir, username, attempts, lock, peer_cycle, peer_lock)
         t.start()
