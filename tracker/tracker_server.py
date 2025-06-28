@@ -1,4 +1,3 @@
-"""Servidor centralizador que mantém o estado da rede P2P."""
 
 import socket
 import threading
@@ -22,7 +21,6 @@ POPULATE_FILE = os.path.join(os.path.dirname(__file__), '..', 'populate', 'track
 
 
 def load_state():
-    """Carrega o estado persistido do tracker."""
 
     source = None
     if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 2:
@@ -60,7 +58,6 @@ def calculate_score(stats):
 
 
 def determine_tier(score):
-    """Converte a pontuação numérica em um nível de incentivo."""
 
     if score < 10:
         return 'bronze'
@@ -77,7 +74,6 @@ def initialize_peer_score(username):
 
 
 def handle_request(conn, addr):
-    """Processa a mensagem recebida de um peer."""
 
     try:
         data = conn.recv(4096)
@@ -118,6 +114,9 @@ def handle_request(conn, addr):
                 user_stats['score'] = calculate_score(user_stats)
                 user_stats['tier'] = determine_tier(user_stats['score'])
                 peer_scores[username] = user_stats
+                for room_name, info in chat_rooms.items():
+                    if info.get('moderator') == username:
+                        info['old'] = True
                 save_state()
                 del active_peers[peer_key]
                 for file_meta in files_db.values():
@@ -202,8 +201,19 @@ def handle_request(conn, addr):
                 response = {'status': True}
 
         elif action == 'list_rooms':
-            rooms_filtered = {r: info for r, info in chat_rooms.items() if not info.get('old')}
-            response = {'status': True, 'rooms': rooms_filtered}
+            changed = False
+            for r, info in chat_rooms.items():
+                addr_ip, addr_port = info['address'].split(':')
+                try:
+                    with socket.create_connection((addr_ip, int(addr_port)), timeout=1):
+                        pass
+                except Exception:
+                    if not info.get('old'):
+                        info['old'] = True
+                        changed = True
+            if changed:
+                save_state()
+            response = {'status': True, 'rooms': chat_rooms}
 
         elif action == 'delete_room':
             room = request.get('room_name')
@@ -241,7 +251,6 @@ def handle_request(conn, addr):
 
 
 def start_tracker():
-    """Loop principal do tracker, aceitando conexões TCP."""
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
@@ -249,8 +258,8 @@ def start_tracker():
     log(f"Tracker (TCP) iniciado em {HOST}:{PORT}", "INFO")
     try:
         while True:
-            # Para cada nova conexão delegamos o processamento a uma thread,
-            # permitindo que o tracker atenda múltiplos peers em paralelo.
+            
+            
             conn, addr = server.accept()
             thread = threading.Thread(target=handle_request, args=(conn, addr), daemon=True)
             thread.start()

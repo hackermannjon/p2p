@@ -1,4 +1,3 @@
-"""Leitura das configurações básicas do sistema (IP e porta do tracker)."""
 
 import json
 import os
@@ -8,7 +7,6 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.j
 
 
 def detect_local_ip():
-    """Tenta descobrir o IP local da máquina."""
 
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -22,7 +20,6 @@ def detect_local_ip():
 
 
 def load_config():
-    """Carrega configurações do arquivo e de variáveis de ambiente."""
 
     data = {}
 
@@ -53,7 +50,6 @@ TRACKER_PORT = _data['tracker_port']
 
 
 def set_tracker_address(host: str, port: int):
-    """Permite alterar o endereço do tracker em tempo de execução."""
 
     global TRACKER_HOST, TRACKER_PORT
     if host:

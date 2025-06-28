@@ -1,11 +1,9 @@
-"""Utilidades para troca de mensagens entre peer e tracker via TCP."""
 
 import socket
 from common.protocol import parse_message, create_message
 
 
 def send_message(host, port, action, data):
-    """Envia uma mensagem JSON para o host/porta especificados."""
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

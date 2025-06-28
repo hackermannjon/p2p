@@ -1,4 +1,3 @@
-"""Gerencia usuários do tracker (registro, autenticação e logging)."""
 
 import hashlib
 import datetime

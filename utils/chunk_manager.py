@@ -1,4 +1,3 @@
-"""Manipulação de arquivos em pedaços (chunks) para o sistema P2P."""
 
 import os
 import hashlib
@@ -7,7 +6,6 @@ CHUNK_SIZE = 1024 * 1024
 
 
 def split_file_into_chunks(file_path):
-    """Divide um arquivo e gera hashes de cada pedaço."""
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Arquivo nao encontrado: {file_path}")
@@ -37,7 +35,6 @@ def split_file_into_chunks(file_path):
 
 
 def reassemble_chunks(chunks_dir, output_file, total_chunks):
-    """Reconstrói o arquivo original a partir dos chunks."""
 
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, 'wb') as f_out:
