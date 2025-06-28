@@ -52,10 +52,7 @@ def handle_peer_request(conn, addr):
         action = request.get("action")
         log(f"Requisição TCP '{action}' recebida de {addr}", "NETWORK")
 
-        # P: Como um peer envia um pedaço (chunk) de arquivo solicitado por outro?
-        # R: Quando a ação é ``request_chunk``, o servidor localiza o arquivo do
-        #    chunk, aplica o atraso baseado no tier do solicitante e, por fim,
-        #    envia os bytes lidos ao cliente.
+
         if action == "request_chunk":
             file_name = request.get("file_name")
             chunk_index = request.get("chunk_index")
@@ -85,17 +82,13 @@ def handle_peer_request(conn, addr):
                 })
             conn.close()
         
-        # P: Como se inicia um chat privado entre dois peers?
-        # R: O solicitante envia ``initiate_chat`` e o servidor passa a
-        #    comunicação do socket para o módulo de chat.
+
         elif action == "initiate_chat":
             remote_username = request.get("from_user", "Desconhecido")
             print(f"\n\r[!] Requisição de chat recebida de '{remote_username}'.")
             chat.handle_chat_session(conn, remote_username)
 
-        # P: Como um peer entra em uma sala de chat em grupo existente?
-        # R: O servidor repassa o socket para ``group_chat.accept_member`` que
-        #    gerencia as permissões e a sessão de grupo.
+
         elif action == "join_room":
             room_name = request.get("room_name")
             member_user = request.get("username")

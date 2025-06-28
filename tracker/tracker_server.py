@@ -283,8 +283,7 @@ def start_tracker():
     log(f"Tracker (TCP) iniciado em {HOST}:{PORT}", "INFO")
     try:
         while True:
-            # P: Como o tracker continua aceitando peers sem bloquear?
-            # R: Cada ``accept`` cria uma thread que executa ``handle_request``.
+
             
             
             conn, addr = server.accept()

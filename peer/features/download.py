@@ -1,10 +1,5 @@
 
-"""Rotinas de download paralelas para arquivos compartilhados.
-
-Este módulo concentra a lógica de múltiplas threads que baixam "chunks" de
-diversos peers ao mesmo tempo. Cada bloco de código possui comentários em
-formato de perguntas e respostas para facilitar o estudo.
-"""
+"""Rotinas de download paralelas para arquivos compartilhados."""
 
 import json
 import os
@@ -24,13 +19,7 @@ MAX_CHUNK_RETRIES = 3
 TIER_THREADS = {'bronze': 1, 'prata': 2, 'ouro': 3, 'diamante': 4}
 
 class DownloaderThread(threading.Thread):
-    """Thread responsável por baixar chunks individuais.
-
-    P: Por que usamos várias threads para baixar um único arquivo?
-    R: Cada thread tenta obter um chunk de um peer diferente. Isso aproveita ao
-       máximo a largura de banda disponível e respeita o limite de paralelismo
-       definido pelo tier do usuário.
-    """
+    """Thread responsável por baixar chunks individuais."""
 
     def __init__(self, file_name, chunk_queue, peers, temp_dir, username, attempts, lock, peer_cycle, peer_lock):
         super().__init__(daemon=True)
@@ -149,25 +138,19 @@ def download_file(file_name, file_info, username):
     temp_dir = os.path.join(DOWNLOADS_FOLDER, f"temp_{file_hash}")
     os.makedirs(temp_dir, exist_ok=True)
 
-    # P: Como as threads sabem quais chunks ainda precisam ser baixados?
-    # R: Utilizamos uma fila ``Queue`` que armazena tuplas (index, hash). Cada
-    #    thread consome dessa fila e devolve o chunk em caso de falha.
+
     chunk_queue = Queue()
     attempts = {}
     lock = Lock()
     for i, chash in enumerate(chunk_hashes):
         chunk_queue.put((i, chash))
 
-    # P: Como escolher o próximo peer sem favorecer sempre o mesmo?
-    # R: ``cycle`` cria um iterador infinito que percorre a lista em ordem,
-    #    permitindo um rodízio simples entre os peers disponíveis.
+
     peer_cycle = cycle(prioritized_peers)
     # trava simples para impedir que duas threads avancem o ciclo ao mesmo tempo
     peer_lock = Lock()
     threads = []
-    # P: Como limitamos o número de threads para respeitar o tier do usuário?
-    # R: ``threads_allowed`` define o limite máximo. Criamos somente até esse
-    #    valor ou a quantidade de peers disponíveis, o que for menor.
+
     for _ in range(min(threads_allowed, len(prioritized_peers))):
         t = DownloaderThread(file_name, chunk_queue, prioritized_peers, temp_dir, username, attempts, lock, peer_cycle, peer_lock)
         t.start()

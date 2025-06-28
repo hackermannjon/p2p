@@ -16,9 +16,7 @@ def send_message(host, port, action, data):
     """
 
     try:
-        # P: Como garantimos que o socket seja fechado corretamente?
-        # R: Utilizamos o gerenciador de contexto ``with`` que encerra o socket
-        #    automaticamente ao sair do bloco, mesmo em caso de erro.
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(5)
             s.connect((host, port))

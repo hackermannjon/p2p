@@ -12,8 +12,7 @@ def log(msg, level="INFO"):
     """
 
     now = datetime.datetime.now().strftime("%H:%M:%S")
-    # P: Como diferenciamos visualmente os níveis de log?
-    # R: Mapeamos cada nível para um código ANSI de cor.
+
     color_map = {
         "INFO": "\033[94m",
         "SUCCESS": "\033[92m",
