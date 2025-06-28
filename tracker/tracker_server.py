@@ -1,3 +1,5 @@
+"""Servidor centralizador que mantém o estado da rede P2P."""
+
 import socket
 import threading
 import json
@@ -20,6 +22,8 @@ POPULATE_FILE = os.path.join(os.path.dirname(__file__), '..', 'populate', 'track
 
 
 def load_state():
+    """Carrega o estado persistido do tracker."""
+
     source = None
     if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 2:
         source = STATE_FILE
@@ -56,6 +60,8 @@ def calculate_score(stats):
 
 
 def determine_tier(score):
+    """Converte a pontuação numérica em um nível de incentivo."""
+
     if score < 10:
         return 'bronze'
     if score < 20:
@@ -71,6 +77,8 @@ def initialize_peer_score(username):
 
 
 def handle_request(conn, addr):
+    """Processa a mensagem recebida de um peer."""
+
     try:
         data = conn.recv(4096)
         if not data:
@@ -233,12 +241,16 @@ def handle_request(conn, addr):
 
 
 def start_tracker():
+    """Loop principal do tracker, aceitando conexões TCP."""
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
     server.listen(15)
     log(f"Tracker (TCP) iniciado em {HOST}:{PORT}", "INFO")
     try:
         while True:
+            # Para cada nova conexão delegamos o processamento a uma thread,
+            # permitindo que o tracker atenda múltiplos peers em paralelo.
             conn, addr = server.accept()
             thread = threading.Thread(target=handle_request, args=(conn, addr), daemon=True)
             thread.start()

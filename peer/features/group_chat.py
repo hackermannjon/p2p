@@ -1,3 +1,5 @@
+"""Funcionalidades para salas de chat em grupo entre peers."""
+
 import os
 import json
 import socket
@@ -12,12 +14,16 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 
 def _log_message(room, message):
+    """Persiste cada mensagem em um arquivo de log por sala."""
+
     path = os.path.join(LOG_DIR, f"{room}.log")
     with open(path, 'a') as f:
         f.write(message + '\n')
 
 
 def start_moderator_room(room_name, moderator):
+    """Inicializa a estrutura de uma sala e define o moderador."""
+
     rooms[room_name] = {
         'members': {},
         'banned': set(),
@@ -28,6 +34,8 @@ def start_moderator_room(room_name, moderator):
 
 
 def _finalize_join(room_name, member_username):
+    """Conclui o processo de entrada de um participante."""
+
     info = rooms.get(room_name)
     if not info:
         return
@@ -63,6 +71,8 @@ def _finalize_join(room_name, member_username):
 
 
 def approve_member(room_name, member_username):
+    """Chamada pelo moderador para permitir a entrada de um usuário."""
+
     info = rooms.get(room_name)
     if not info:
         return
@@ -73,6 +83,8 @@ def approve_member(room_name, member_username):
 
 
 def deny_member(room_name, member_username):
+    """Rejeita a solicitação de entrada e registra banimento."""
+
     info = rooms.get(room_name)
     if not info:
         return
@@ -83,6 +95,8 @@ def deny_member(room_name, member_username):
 
 
 def accept_member(conn, room_name, member_username):
+    """Fluxo executado no peer moderador ao receber nova conexão."""
+
     info = rooms.get(room_name)
     if not info:
         conn.close()
@@ -115,6 +129,8 @@ def accept_member(conn, room_name, member_username):
 
 
 def _member_session(conn, room_name, member_username):
+    """Recebe e encaminha mensagens de um participante."""
+
     while True:
         try:
             data = conn.recv(1024)
@@ -133,6 +149,8 @@ def _member_session(conn, room_name, member_username):
 
 
 def broadcast(room_name, message, exclude=None):
+    """Envia uma mensagem para todos os membros conectados."""
+
     for uname, c in list(rooms.get(room_name, {}).get('members', {}).items()):
         if uname == exclude:
             continue
@@ -143,6 +161,8 @@ def broadcast(room_name, message, exclude=None):
 
 
 def show_menu(peer_port, username):
+    """Menu interativo para criação e entrada em salas."""
+
     while True:
         print('\n--- Salas de Chat ---')
         print('1. Listar salas')
@@ -211,6 +231,8 @@ def _group_session(conn, room_name, username, is_moderator=False):
             if msg == '/quit':
                 break
             if msg == '/log':
+                # P: É possível visualizar mensagens antigas da sala?
+                # R: Sim. O comando '/log' imprime o histórico apenas para quem solicitou.
                 try:
                     with open(os.path.join(LOG_DIR, f"{room_name}.log")) as f:
                         for line in f:

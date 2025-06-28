@@ -1,3 +1,5 @@
+"""Cliente peer que oferece arquivos e participa do chat."""
+
 import os
 import socket
 import threading
@@ -17,6 +19,7 @@ DOWNLOADS_FOLDER = 'downloads'
 peer_host = '0.0.0.0'
 peer_port = 0
 peer_tcp_server_socket = None
+server_thread = None
 
 logged_in = False
 username = ""
@@ -24,6 +27,13 @@ network_files_db = {}
 
 
 def handle_peer_request(conn, addr):
+    """Responde requisições de outros peers.
+
+    P: Por que cada conexão é processada em uma thread separada?
+    R: Para que possamos atender múltiplos peers simultaneamente sem travar o
+       servidor principal do cliente.
+    """
+
     try:
         request_data = conn.recv(1024).decode()
         request = json.loads(request_data)
@@ -45,6 +55,9 @@ def handle_peer_request(conn, addr):
                     "target_username": requester_username
                 })
                 tier = score_res.get("tier", "bronze") if score_res else "bronze"
+                # P: Por que há uma espera antes de enviar o chunk?
+                # R: Para incentivar boa conduta. Usuários em tiers mais altos
+                #    são atendidos mais rapidamente.
                 delay_map = {"bronze": 10, "prata": 5, "ouro": 2, "diamante": 0}
                 time.sleep(delay_map.get(tier, 0))
                 conn.sendall(chunk_data)
@@ -75,6 +88,8 @@ def handle_peer_request(conn, addr):
         conn.close()
 
 def peer_server_logic():
+    """Servidor TCP que recebe conexões de outros peers."""
+
     global peer_tcp_server_socket
     peer_tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     peer_tcp_server_socket.bind((peer_host, peer_port))
@@ -82,6 +97,9 @@ def peer_server_logic():
     log(f"Peer escutando por conexões TCP em {peer_host}:{peer_port}", "INFO")
 
     while True:
+        # P: Como lidamos com várias requisições ao mesmo tempo?
+        # R: Aceitamos a conexão e imediatamente delegamos para uma nova thread
+        #    que executa `handle_peer_request`.
         try:
             conn, addr = peer_tcp_server_socket.accept()
             thread = threading.Thread(target=handle_peer_request, args=(conn, addr), daemon=True)
@@ -92,6 +110,8 @@ def peer_server_logic():
 
 
 def login_user():
+    """Realiza autenticação do usuário e inicia o servidor TCP."""
+
     global logged_in, username, peer_port, peer_tcp_server_socket, server_thread
     u = input("Usuário: ")
     p = input("Senha: ")
@@ -122,6 +142,8 @@ def register_user():
         log(res.get('message', 'Falha no registro'), 'ERROR')
 
 def logout_user():
+    """Encerra sessão no tracker e fecha sockets locais."""
+
     global logged_in, username, peer_tcp_server_socket
     log("Deslogando do tracker...", "INFO")
     send_to_tracker({"action": "logout", "port": peer_port, "username": username})
@@ -134,6 +156,8 @@ def logout_user():
         peer_tcp_server_socket = None
 
 def main():
+    """Loop principal de interação com o usuário."""
+
     global network_files_db
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOADS_FOLDER, exist_ok=True)

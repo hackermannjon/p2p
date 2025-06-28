@@ -2,6 +2,8 @@ import datetime
 
 
 def log(msg, level="INFO"):
+    """Imprime mensagens coloridas para facilitar a depuração."""
+
     now = datetime.datetime.now().strftime("%H:%M:%S")
     color_map = {
         "INFO": "\033[94m",
