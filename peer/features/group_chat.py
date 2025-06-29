@@ -1,3 +1,4 @@
+
 import os
 import json
 import socket
@@ -12,24 +13,26 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 
 def _log_message(room, message):
+
     path = os.path.join(LOG_DIR, f"{room}.log")
     with open(path, 'a') as f:
         f.write(message + '\n')
 
 
 def start_moderator_room(room_name, moderator):
-    """Inicializa a estrutura de uma nova sala."""
+
     rooms[room_name] = {
         'members': {},
         'banned': set(),
-        'pending': {},  # usuarios aguardando aprovacao
+        'pending': {},
+        'allowed': set([moderator]),
         'moderator': moderator,
         'log_file': os.path.join(LOG_DIR, f"{room_name}.log")
     }
 
 
 def _finalize_join(room_name, member_username):
-    """Move o usuario pendente para a lista de membros e inicia a sessao."""
+
     info = rooms.get(room_name)
     if not info:
         return
@@ -40,7 +43,6 @@ def _finalize_join(room_name, member_username):
     approved = entry['approved']
     entry['event'].set()
     if not approved:
-        # Moderador negou a entrada
         info['banned'].add(member_username)
         try:
             conn.sendall(b'Voce foi banido desta sala.\n')
@@ -48,8 +50,8 @@ def _finalize_join(room_name, member_username):
             pass
         conn.close()
         return
-
     info['members'][member_username] = conn
+    info.setdefault('allowed', set()).add(member_username)
     try:
         with open(info['log_file'], 'r') as f:
             for line in f:
@@ -67,16 +69,19 @@ def _finalize_join(room_name, member_username):
 
 
 def approve_member(room_name, member_username):
+
     info = rooms.get(room_name)
     if not info:
         return
     entry = info.get('pending', {}).get(member_username)
     if entry:
         entry['approved'] = True
+        info.setdefault('allowed', set()).add(member_username)
         _finalize_join(room_name, member_username)
 
 
 def deny_member(room_name, member_username):
+
     info = rooms.get(room_name)
     if not info:
         return
@@ -87,6 +92,7 @@ def deny_member(room_name, member_username):
 
 
 def accept_member(conn, room_name, member_username):
+
     info = rooms.get(room_name)
     if not info:
         conn.close()
@@ -98,20 +104,11 @@ def accept_member(conn, room_name, member_username):
             pass
         conn.close()
         return
-
-    # Moderador entra automaticamente
-    if member_username == info.get('moderator'):
+    if member_username == info.get('moderator') or member_username in info.get('allowed', set()):
         info['members'][member_username] = conn
-        send_to_tracker({
-            'action': 'room_member_update',
-            'room_name': room_name,
-            'username': member_username,
-            'event': 'join'
-        })
+        send_to_tracker({'action': 'room_member_update', 'room_name': room_name, 'username': member_username, 'event': 'join'})
         threading.Thread(target=_member_session, args=(conn, room_name, member_username), daemon=True).start()
         return
-
-    # Solicita aprovacao do moderador
     entry = {'conn': conn, 'approved': False, 'event': threading.Event()}
     info.setdefault('pending', {})[member_username] = entry
     mod_conn = info['members'].get(info['moderator'])
@@ -124,12 +121,11 @@ def accept_member(conn, room_name, member_username):
         conn.sendall(b'Aguardando aprovacao do moderador...\n')
     except Exception:
         pass
-    # Aguarda a resposta do moderador
     entry['event'].wait()
-    return
 
 
 def _member_session(conn, room_name, member_username):
+
     while True:
         try:
             data = conn.recv(1024)
@@ -144,15 +140,11 @@ def _member_session(conn, room_name, member_username):
             break
     conn.close()
     rooms[room_name]['members'].pop(member_username, None)
-    send_to_tracker({
-        'action': 'room_member_update',
-        'room_name': room_name,
-        'username': member_username,
-        'event': 'leave'
-    })
+    send_to_tracker({'action': 'room_member_update', 'room_name': room_name, 'username': member_username, 'event': 'leave'})
 
 
 def broadcast(room_name, message, exclude=None):
+
     for uname, c in list(rooms.get(room_name, {}).get('members', {}).items()):
         if uname == exclude:
             continue
@@ -163,13 +155,14 @@ def broadcast(room_name, message, exclude=None):
 
 
 def show_menu(peer_port, username):
+
     while True:
-        print("\n--- Salas de Chat ---")
-        print("1. Listar salas")
-        print("2. Criar sala")
-        print("3. Entrar em sala")
-        print("4. Remover sala")
-        print("0. Voltar")
+        print('\n--- Salas de Chat ---')
+        print('1. Listar salas')
+        print('2. Criar sala')
+        print('3. Entrar em sala')
+        print('4. Remover sala')
+        print('0. Voltar')
         choice = input('> ')
         if choice == '1':
             res = send_to_tracker({'action': 'list_rooms', 'port': peer_port, 'username': username})
@@ -179,7 +172,8 @@ def show_menu(peer_port, username):
             else:
                 for r, info in rooms_list.items():
                     members = ','.join(info.get('members', []))
-                    print(f"- {r} (moderador: {info['moderator']}) [membros: {members}]")
+                    mark = ' [OLD]' if info.get('old') else ''
+                    print(f"- {r}{mark} (moderador: {info['moderator']}) [membros: {members}]")
         elif choice == '2':
             room = input('Nome da sala: ')
             res = send_to_tracker({'action': 'create_room', 'room_name': room, 'port': peer_port, 'username': username})
@@ -194,6 +188,9 @@ def show_menu(peer_port, username):
             info = res.get('rooms', {}).get(room) if res else None
             if not info:
                 log('Sala não encontrada.', 'ERROR')
+                continue
+            if info.get('old'):
+                log('Sala indisponível.', 'ERROR')
                 continue
             addr_ip, addr_port = info['address'].split(':')
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -224,13 +221,22 @@ def _group_session(conn, room_name, username, is_moderator=False):
             except Exception:
                 break
         print('\nConexao encerrada.')
-
     threading.Thread(target=recv_loop, daemon=True).start()
     try:
         while True:
             msg = input('> ')
             if msg == '/quit':
                 break
+            if msg == '/log':
+                
+                
+                try:
+                    with open(os.path.join(LOG_DIR, f"{room_name}.log")) as f:
+                        for line in f:
+                            print(line.strip())
+                except FileNotFoundError:
+                    print('Sem historico.')
+                continue
             if is_moderator:
                 if msg.startswith('/ban '):
                     target = msg.split(' ', 1)[1]
@@ -264,4 +270,3 @@ def _group_session(conn, room_name, username, is_moderator=False):
     except KeyboardInterrupt:
         pass
     conn.close()
-

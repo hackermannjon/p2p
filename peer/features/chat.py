@@ -1,4 +1,3 @@
-# peer/features/chat.py
 import socket
 import json
 import threading
@@ -9,7 +8,6 @@ from .network import send_to_tracker
 chat_active_flag = threading.Event()
 
 def handle_chat_session(conn, remote_username):
-    """Gerencia uma sessão de chat ativa. Esta função bloqueia até o chat terminar."""
     chat_active_flag.set()
     log(f"Sessão de chat iniciada com {remote_username}. Digite '/quit' para sair.", "NETWORK")
     
@@ -22,7 +20,7 @@ def handle_chat_session(conn, remote_username):
                 print(f"\r[{remote_username}]: {data.decode()}\n> ", end="")
             except (ConnectionResetError, ConnectionAbortedError, OSError):
                 break
-        chat_active_flag.clear() # Sinaliza para a thread de envio parar
+        chat_active_flag.clear()
 
     receiver_thread = threading.Thread(target=receive_messages, daemon=True)
     receiver_thread.start()
@@ -44,7 +42,6 @@ def handle_chat_session(conn, remote_username):
     print("\nSaindo do modo de chat...")
 
 def start_chat_client(peer_port, username):
-    """Inicia o processo para um cliente começar uma conversa."""
     res = send_to_tracker({"action": "get_active_peers", "port": peer_port, "username": username})
     if not (res and res.get('status') and res.get('peers')):
         log("Nenhum outro peer ativo para conversar.", "WARNING")
@@ -74,3 +71,4 @@ def start_chat_client(peer_port, username):
         log("Seleção inválida.", "ERROR")
     except Exception as e:
         log(f"Não foi possível iniciar o chat: {e}", "ERROR")
+

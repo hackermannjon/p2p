@@ -1,11 +1,9 @@
-# peer/features/network.py
 import socket
 import json
 from utils.logger import log
 import utils.config as config
 
 def send_to_tracker(data):
-    """Envia uma mensagem TCP ao tracker e retorna a resposta como dict."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(10)
@@ -22,3 +20,4 @@ def send_to_tracker(data):
     except Exception as e:
         log(f"Erro de comunicação com o tracker: {e}", "ERROR")
         return {"status": False, "message": str(e)}
+

@@ -1,3 +1,4 @@
+
 import json
 import os
 import socket
@@ -6,7 +7,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.j
 
 
 def detect_local_ip():
-    """Tenta descobrir o IP local da maquina."""
+
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('8.8.8.8', 80))
@@ -19,7 +20,7 @@ def detect_local_ip():
 
 
 def load_config():
-    """Carrega configuracoes do tracker, priorizando variaveis de ambiente."""
+
     data = {}
 
     if os.path.exists(CONFIG_PATH):
@@ -49,9 +50,10 @@ TRACKER_PORT = _data['tracker_port']
 
 
 def set_tracker_address(host: str, port: int):
-    """Altera o endereco do tracker em tempo de execucao."""
+
     global TRACKER_HOST, TRACKER_PORT
     if host:
         TRACKER_HOST = host
     if port:
         TRACKER_PORT = port
+

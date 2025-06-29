@@ -1,44 +1,57 @@
-# peer/peer_client.py
+
+"""Cliente principal do peer.
+
+Este módulo inicia a interface de linha de comando do peer e o servidor TCP
+que recebe solicitações de outros participantes da rede. Os comentários seguem
+o formato de perguntas e respostas para explicar cada passo de forma didática.
+"""
+
 import os
-import socket
-import threading
+import socket  # Usado para comunicação de rede via TCP entre os peers
+import threading  # Permite atender múltiplas conexões simultaneamente
 import time
 import json
 import argparse
 import sys
 
-# Garante que o diretório pai esteja no PYTHONPATH para permitir "import utils" e "features"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Módulos de funcionalidades refatorados
 from features import announce, chat, download, list_files, ranking, group_chat
 from features.network import send_to_tracker
-
-# Módulos de utilidades
 from utils.logger import log
 
-# --- CONFIGURAÇÕES E ESTADO GLOBAL ---
 SHARED_FOLDER = 'shared'
 DOWNLOADS_FOLDER = 'downloads'
 
 peer_host = '0.0.0.0'
 peer_port = 0
-peer_tcp_server_socket = None # Socket TCP para outros peers
+peer_tcp_server_socket = None
+server_thread = None
 
 logged_in = False
 username = ""
-network_files_db = {} # Cache local da lista de arquivos da rede
+network_files_db = {}
 
-# --- LÓGICA DO SERVIDOR DO PEER ---
 
 def handle_peer_request(conn, addr):
-    """Lida com requisições TCP de outros peers (chunks ou chat)."""
+    """Processa uma conexão TCP recebida de outro peer.
+
+    P: Como o servidor lida com diferentes tipos de requisições recebidas?
+    R: Ele interpreta o campo ``action`` do JSON enviado pelo cliente e executa
+       o bloco correspondente. Cada tipo de ação (download de chunk, chat, etc.)
+       dispara uma lógica específica.
+
+    Args:
+        conn (socket.socket): conexão já aceita com o peer remoto.
+        addr (tuple): endereço (IP, porta) do peer remoto.
+    """
+
     try:
-        # Aumentado o buffer para garantir que a requisição JSON seja recebida
         request_data = conn.recv(1024).decode()
         request = json.loads(request_data)
         action = request.get("action")
         log(f"Requisição TCP '{action}' recebida de {addr}", "NETWORK")
+
 
         if action == "request_chunk":
             file_name = request.get("file_name")
@@ -54,18 +67,13 @@ def handle_peer_request(conn, addr):
                     "action": "get_peer_score",
                     "target_username": requester_username
                 })
-                score = score_res.get("score", 0) if score_res else 0
-
-                THROTTLE_THRESHOLD = 5
-                BYTES_PER_SECOND_LIMIT = 512 * 1024
-                if score < THROTTLE_THRESHOLD:
-                    packet_size = 4096
-                    delay = packet_size / BYTES_PER_SECOND_LIMIT
-                    for i in range(0, len(chunk_data), packet_size):
-                        conn.sendall(chunk_data[i:i+packet_size])
-                        time.sleep(delay)
-                else:
-                    conn.sendall(chunk_data)
+                tier = score_res.get("tier", "bronze") if score_res else "bronze"
+                
+                
+                
+                delay_map = {"bronze": 10, "prata": 5, "ouro": 2, "diamante": 0}
+                time.sleep(delay_map.get(tier, 0))
+                conn.sendall(chunk_data)
 
                 send_to_tracker({
                     "action": "report_upload",
@@ -74,11 +82,12 @@ def handle_peer_request(conn, addr):
                 })
             conn.close()
         
+
         elif action == "initiate_chat":
             remote_username = request.get("from_user", "Desconhecido")
             print(f"\n\r[!] Requisição de chat recebida de '{remote_username}'.")
-            # Delega para a função de chat, que gerencia o ciclo de vida da conexão
             chat.handle_chat_session(conn, remote_username)
+
 
         elif action == "join_room":
             room_name = request.get("room_name")
@@ -86,15 +95,24 @@ def handle_peer_request(conn, addr):
             group_chat.accept_member(conn, room_name, member_user)
             return
 
-    except (json.JSONDecodeError, ConnectionResetError) as e:
-        log(f"Conexão de {addr} encerrada ou inválida: {e}", "INFO")
+    except (json.JSONDecodeError, ConnectionResetError):
+        # Conexões mal formadas ou fechadas são simplesmente descartadas para
+        # evitar poluir os logs do usuário.
         conn.close()
     except Exception as e:
         log(f"Erro ao lidar com a requisição de {addr}: {e}", "ERROR")
         conn.close()
 
 def peer_server_logic():
-    """Cria e gerencia o servidor TCP que escuta outros peers."""
+    """Mantém o servidor TCP do peer ativo.
+
+    P: Como o peer consegue aceitar várias conexões sem bloquear a interface
+       principal?
+    R: Para cada ``accept`` bem-sucedido uma nova thread é criada, delegando o
+       processamento da requisição para ``handle_peer_request``. Dessa forma o
+       laço principal volta imediatamente a aceitar novas conexões.
+    """
+
     global peer_tcp_server_socket
     peer_tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     peer_tcp_server_socket.bind((peer_host, peer_port))
@@ -102,18 +120,21 @@ def peer_server_logic():
     log(f"Peer escutando por conexões TCP em {peer_host}:{peer_port}", "INFO")
 
     while True:
+        
+        
+        
         try:
             conn, addr = peer_tcp_server_socket.accept()
             thread = threading.Thread(target=handle_peer_request, args=(conn, addr), daemon=True)
             thread.start()
         except OSError:
-             break # Socket foi fechado, encerrar o loop
+            break
     log("Servidor TCP do peer foi encerrado.", "INFO")
 
-# --- FUNÇÕES DE CONTROLE ---
 
 def login_user():
-    """Lida com a lógica de login do usuário."""
+    """Realiza o processo de autenticação junto ao tracker."""
+
     global logged_in, username, peer_port, peer_tcp_server_socket, server_thread
     u = input("Usuário: ")
     p = input("Senha: ")
@@ -128,7 +149,6 @@ def login_user():
         logged_in = True
         username = u
         log(f"Login bem-sucedido como '{username}'", "SUCCESS")
-        # Inicia o servidor TCP do peer após o login
         server_thread = threading.Thread(target=peer_server_logic, daemon=True)
         server_thread.start()
     else:
@@ -136,7 +156,7 @@ def login_user():
         peer_tcp_server_socket.close()
 
 def register_user():
-    """Lida com o registro de um novo usuário."""
+    """Envia ao tracker um pedido de criação de conta."""
     u = input("Usuário: ")
     p = input("Senha: ")
     res = send_to_tracker({"action": "register", "username": u, "password": p})
@@ -146,21 +166,22 @@ def register_user():
         log(res.get('message', 'Falha no registro'), 'ERROR')
 
 def logout_user():
-    """Lida com a lógica de logout."""
+    """Finaliza a sessão atual do usuário e encerra o servidor local."""
+
     global logged_in, username, peer_tcp_server_socket
     log("Deslogando do tracker...", "INFO")
     send_to_tracker({"action": "logout", "port": peer_port, "username": username})
     logged_in = False
     username = ""
     
-    # Fecha os sockets da sessão
+    
     if peer_tcp_server_socket:
         peer_tcp_server_socket.close()
         peer_tcp_server_socket = None
 
-# --- LOOP PRINCIPAL DA APLICAÇÃO ---
-
 def main():
+    """Loop principal do programa de linha de comando."""
+
     global network_files_db
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOADS_FOLDER, exist_ok=True)
@@ -224,3 +245,4 @@ if __name__ == "__main__":
     else:
         set_tracker_address(host_port, TRACKER_PORT)
     main()
+
